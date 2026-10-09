@@ -1,0 +1,137 @@
+/* 验证期报告视图（SPEC-07）—— 浅色主题，配色与 styles.css 一致 */
+
+.vr {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #1f2329;
+}
+
+.vr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vr-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.vr-section h5 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4e5969;
+}
+
+.vr-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #86909c;
+  line-height: 1.6;
+}
+
+.vr-error {
+  color: #d93026;
+}
+
+.vr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 统计概览：四格等宽 */
+.vr-summary {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vr-summary li {
+  flex: 1;
+  min-width: 72px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vr-summary span {
+  font-size: 11px;
+  color: #86909c;
+}
+
+.vr-summary b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 指标表 */
+.vr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: #fff;
+}
+
+.vr-table th,
+.vr-table td {
+  border: 1px solid #e5e6eb;
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.vr-table th {
+  background: #f7f8fa;
+  font-weight: 600;
+  color: #4e5969;
+}
+
+.vr-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vr-threshold {
+  color: #86909c;
+  font-size: 11px;
+}
+
+/* 判定徽标：继续绿 / 调整黄 / 放弃红 */
+.vr-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.vr-continue {
+  background: #e8ffea;
+  color: #0a7d33;
+  border: 1px solid #aff0b5;
+}
+
+.vr-adjust {
+  background: #fff7e8;
+  color: #a15c00;
+  border: 1px solid #ffd591;
+}
+
+.vr-abandon {
+  background: #ffece8;
+  color: #b71c0c;
+  border: 1px solid #ffb4a8;
+}

@@ -1,0 +1,584 @@
+/* 导图 Tab（SPEC-04 四次迭代）：概念图 v3 = 竖向阶段流程（HTML/CSS）+ 章节时间轴（markmap） */
+
+.mindmap-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 视图切换条（概念图 / 时间轴） */
+.mm-view-switch {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+
+.mm-view-btn {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid #e5e6eb;
+  border-radius: 999px;
+  background: #fff;
+  color: #646a73;
+  cursor: pointer;
+}
+
+.mm-view-btn.active {
+  background: #165dff;
+  border-color: #165dff;
+  color: #fff;
+}
+
+.mm-view-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------- 概念图视图：竖向阶段流程（四次迭代，浅色主题） ---------------- */
+
+.cm-container {
+  flex: 1;
+  min-height: 320px;
+  overflow: auto;
+  padding: 8px 0;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+}
+
+/* 降级横幅（黄底 + 重试按钮，替代静默降级） */
+.cm-degraded-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #fff7e0;
+  border-bottom: 1px solid #f5e3b3;
+}
+
+.cm-degraded-text {
+  flex: 1;
+  font-size: 11px;
+  color: #8a5a00;
+}
+
+.cm-retry-btn {
+  flex: 0 0 auto;
+  padding: 2px 10px;
+  font-size: 11px;
+  color: #8a5a00;
+  background: #fff;
+  border: 1px solid #e5c26b;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cm-retry-btn:hover {
+  background: #fdf3d6;
+}
+
+/* 阶段块（竖向流程的最小单位） */
+.cm-stage {
+  margin: 0 8px;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cm-stage-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #f0f5ff;
+  border-bottom: 1px solid #e5e6eb;
+}
+
+/* 步骤圆徽（1/2/3…，实心圆，体现流程步骤） */
+.cm-stage-step {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #165dff;
+  border-radius: 50%;
+}
+
+.cm-stage-title {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0e42d2;
+}
+
+/* 概念数徽标 */
+.cm-stage-count {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: #165dff;
+  background: #fff;
+  border: 1px solid #94bfff;
+  border-radius: 999px;
+}
+
+/* 阶段内概念行容器：rail 竖线贯穿（左侧） */
+.cm-stage-body {
+  margin-left: 18px;
+  border-left: 2px solid #dde3ee;
+  padding: 2px 0 2px 6px;
+}
+
+/* 概念行块（淡入 + 高亮过渡；relative 供 rail 节点圆点定位） */
+.cm-concept {
+  position: relative;
+  padding: 6px 10px;
+  border-bottom: 1px solid #f0f1f3;
+  transition: background-color 0.25s ease, box-shadow 0.25s ease;
+  animation: cm-fade-in 0.25s ease;
+}
+
+.cm-concept:last-child {
+  border-bottom: none;
+}
+
+@keyframes cm-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cm-concept-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 概念名（粗体，点击跳主锚 primaryAnchorTMs） */
+.cm-concept-label {
+  flex: 1 1 auto;
+  padding: 0;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2329;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.cm-concept-label:disabled {
+  cursor: default;
+  color: #646a73;
+}
+
+.cm-concept-label:not(:disabled):hover {
+  color: #165dff;
+}
+
+/* 重要度文字徽标（data-importance 分级着色） */
+.cm-importance-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #646a73;
+  background: #f2f3f5;
+  border-radius: 4px;
+}
+
+.cm-importance-badge[data-importance='3'] {
+  color: #0f8a5f;
+  background: #e8f7f0;
+}
+
+.cm-importance-badge[data-importance='4'] {
+  color: #0e42d2;
+  background: #e0eaff;
+}
+
+.cm-importance-badge[data-importance='5'] {
+  color: #fff;
+  background: #165dff;
+}
+
+/* 时间 chips（[mm:ss] 小按钮，点击跳播） */
+.cm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* 主锚 chip：实心强调（anchors[0] = 得分最高章节） */
+.cm-chip.cm-chip-primary {
+  color: #fff;
+  background: #165dff;
+  border-color: #165dff;
+  font-weight: 600;
+}
+
+.cm-chip.cm-chip-primary:hover {
+  background: #0e42d2;
+}
+
+/* 次锚 chip：次级样式（浅底描边，弱于主锚） */
+.cm-chip {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #4e5969;
+  background: #f7f8fa;
+  border: 1px solid #e5e6eb;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cm-chip:hover {
+  color: #fff;
+  background: #165dff;
+  border-color: #165dff;
+}
+
+/* 细节折叠切换（"细节 ▸"） */
+.cm-details-toggle {
+  margin-top: 4px;
+  padding: 0;
+  font-size: 11px;
+  color: #646a73;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.cm-details-toggle:hover {
+  color: #165dff;
+}
+
+/* 细节折叠区：grid 0fr/1fr 过渡（参考 outline-regen-collapse 模式，
+   常驻渲染避免条件渲染硬切） */
+.cm-details-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.28s ease;
+}
+
+.cm-details-collapse.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.cm-details-collapse > .cm-details {
+  overflow: hidden;
+  min-height: 0;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.cm-details-collapse > .cm-details li {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #646a73;
+}
+
+/* 概念跟随：当前章节精确命中的概念行高亮（过渡动画，不命中不亮） */
+.cm-concept.concept-active {
+  background: #f0f5ff;
+  box-shadow: inset 3px 0 0 #165dff;
+}
+
+.cm-concept.concept-active .cm-concept-label {
+  color: #0e42d2;
+}
+
+/* 动效弱化偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .cm-concept,
+  .cm-details-collapse {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ---------------- 四次迭代：阶段间连接（流程推进感） ---------------- */
+
+/* 阶段间连接线：阶段块之间垂直竖线 + 向下箭头（约 20px 高，首阶段无），
+   呈现"第一步 → 第二步 → …"的推进感（纯 CSS border 实现） */
+.kp-connector {
+  position: relative;
+  height: 20px;
+  margin: 0 8px;
+}
+
+.kp-connector::before {
+  content: '';
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 5px;
+  width: 2px;
+  background: #94bfff;
+  border-radius: 1px;
+}
+
+.kp-connector::after {
+  content: '';
+  position: absolute;
+  left: 19px;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border: 6px solid transparent;
+  border-top-color: #94bfff;
+  border-bottom: none;
+}
+
+/* 当前阶段高亮：播放位置命中的概念所在阶段块边框加重 */
+.cm-stage.stage-current {
+  border-color: #165dff;
+  box-shadow: 0 0 0 1px #165dff;
+}
+
+/* rail 节点圆点：有语义——该概念最早锚点时间（hover title 显示），
+   区别于二次迭代砍掉的"无语义圆点" */
+.cm-rail-dot {
+  position: absolute;
+  left: -11px;
+  top: 10px;
+  width: 8px;
+  height: 8px;
+  background: #94bfff;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #d5e3ff;
+  cursor: help;
+}
+
+.cm-concept.concept-active .cm-rail-dot {
+  background: #165dff;
+}
+
+/* ---------------- 生成入口 / 骨架 ---------------- */
+
+/* 生成入口 / 设置引导 */
+.cm-gate {
+  flex: 1;
+  display: flex;
+}
+
+/* 生成中骨架动画 */
+.cm-skeleton {
+  flex: 1;
+  padding: 24px 16px;
+}
+
+.cm-skeleton-bar {
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f2f3f5 25%, #e8eaee 50%, #f2f3f5 75%);
+  background-size: 200% 100%;
+  animation: cm-shimmer 1.2s infinite;
+}
+
+.cm-skeleton-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cm-skeleton-row .cm-skeleton-bar {
+  flex: 1;
+}
+
+.cm-skeleton-text {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #8a919f;
+  text-align: center;
+}
+
+@keyframes cm-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ---------------- 章节时间轴视图（markmap，原样式保留） ---------------- */
+
+.mindmap-container {
+  flex: 1;
+  min-height: 320px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+}
+
+.mindmap-container svg.markmap {
+  width: 100%;
+  height: 100%;
+}
+
+/* 节点文字基础样式（markmap 默认色偏浅，统一主题色） */
+.mindmap-container .markmap-foreign {
+  font-size: 13px;
+  color: #1f2329;
+}
+
+/* 播放跟随：当前章节节点高亮（醒目光晕 + 文字主题色加粗） */
+g.mm-active {
+  filter: drop-shadow(0 0 3px rgba(22, 93, 255, 0.65));
+}
+
+g.mm-active text {
+  fill: #165dff;
+  font-weight: 600;
+}
+
+g.mm-active foreignObject div,
+g.mm-active foreignObject span {
+  color: #165dff;
+  font-weight: 600;
+}
+
+/* 可点击跳播的节点：悬停手型提示 */
+.mindmap-container g.markmap-node {
+  cursor: pointer;
+}
+
+/* ===== 概念图视觉增强：阶段色带 + 重要性热力 + 顶部统计条 ===== */
+.cm-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: #f7f8fa;
+  border: 1px solid #e5e6eb;
+  font-size: 12px;
+  color: #4e5969;
+}
+.cm-summary-item b {
+  font-size: 14px;
+  color: #1f2329;
+}
+.cm-summary-sep {
+  width: 1px;
+  height: 12px;
+  background: #e5e6eb;
+}
+
+/* 阶段序号色带：按顺序轮换，让"推进阶段"有视觉节奏 */
+.cm-stage-step.stage-hue-0 { background: #185fa5; }
+.cm-stage-step.stage-hue-1 { background: #0f6e56; }
+.cm-stage-step.stage-hue-2 { background: #854f0b; }
+.cm-stage-step.stage-hue-3 { background: #993556; }
+.cm-stage-step.stage-hue-4 { background: #3c3489; }
+
+/* 概念重要性热力：1（浅）→ 5（深），左侧色条强度随重要性递增 */
+.cm-concept {
+  border-left: 3px solid #e5e6eb;
+}
+.cm-concept.imp-1 { border-left-color: #dfe3e8; }
+.cm-concept.imp-2 { border-left-color: #b5d4f4; }
+.cm-concept.imp-3 { border-left-color: #85b7eb; }
+.cm-concept.imp-4 { border-left-color: #378add; }
+.cm-concept.imp-5 { border-left-color: #185fa5; }
+.cm-concept.imp-5 .cm-concept-label {
+  font-weight: 600;
+  color: #0c447c;
+}
+
+/* ===== 流程图视图（draw.io 式：阶段为列、概念为节点、flows 为边） ===== */
+.cmf-flow-scroll {
+  overflow: auto;
+  border: 1px solid #e5e6eb;
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+.cmf-svg {
+  display: block;
+}
+.cmf-stage-rect {
+  fill: #f2f6fd;
+  stroke: #d8e2f2;
+}
+.cmf-stage-rect.hue-0 { fill: #e8f1fb; stroke: #b9d4f0; }
+.cmf-stage-rect.hue-1 { fill: #e6f4ef; stroke: #b8e0d2; }
+.cmf-stage-rect.hue-2 { fill: #fbf3e4; stroke: #ecd9b0; }
+.cmf-stage-rect.hue-3 { fill: #f9ecf1; stroke: #e8c4d3; }
+.cmf-stage-rect.hue-4 { fill: #edecf9; stroke: #c9c6ec; }
+.cmf-stage-text {
+  font-size: 12px;
+  font-weight: 600;
+  fill: #1f2329;
+}
+.cmf-edge path {
+  fill: none;
+  stroke: #378add;
+  stroke-width: 1.6;
+}
+.cmf-edge.seq path {
+  stroke: #c3cbd6;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+.cmf-arrow-head { fill: #378add; }
+.cmf-arrow-head-seq { fill: #c3cbd6; }
+.cmf-edge-label {
+  font-size: 11px;
+  fill: #4e5969;
+  paint-order: stroke;
+  stroke: #fbfcfe;
+  stroke-width: 3px;
+}
+.cmf-node-rect {
+  fill: #ffffff;
+  stroke: #c9d4e3;
+  stroke-width: 1.4;
+  cursor: pointer;
+  transition: stroke 0.15s ease;
+}
+.cmf-node:hover .cmf-node-rect {
+  stroke: #378add;
+}
+.cmf-node.active .cmf-node-rect {
+  stroke: #185fa5;
+  stroke-width: 2.2;
+  fill: #eef5fd;
+}
+.cmf-node-text {
+  font-size: 12.5px;
+  fill: #1f2329;
+  pointer-events: none;
+}
+.cmf-node.imp-5 .cmf-node-text {
+  font-weight: 600;
+  fill: #0c447c;
+}
+.cmf-node.imp-5 .cmf-node-rect {
+  stroke: #85b7eb;
+}
+.cmf-hint-banner {
+  background: #f2f6fd;
+  border-color: #d8e2f2;
+}

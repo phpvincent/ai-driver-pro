@@ -1,0 +1,86 @@
+/* 帮助浮层（SPEC-10 10.9）：与笔记弹窗同体系的遮罩 + 居中对话框 */
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 18, 25, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.help-modal {
+  width: min(600px, calc(100vw - 32px));
+  max-height: min(84vh, 720px);
+  overflow: auto;
+  background: var(--bg, #fff);
+  color: inherit;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  padding: 16px 20px 20px;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.help-title {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.help-close {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.5;
+  color: inherit;
+  padding: 2px 6px;
+}
+
+.help-close:hover {
+  opacity: 1;
+}
+
+.help-modal h4 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.help-steps,
+.help-tabs-list,
+.help-faq {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.help-steps li,
+.help-tabs-list li,
+.help-faq li {
+  margin: 6px 0;
+}
+
+.help-steps b,
+.help-tabs-list b,
+.help-faq b {
+  display: block;
+  margin-bottom: 1px;
+}
+
+.help-privacy {
+  margin: 0;
+  background: var(--bg-inset, rgba(127, 127, 127, 0.06));
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  opacity: 0.85;
+}

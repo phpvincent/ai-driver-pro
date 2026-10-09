@@ -1,0 +1,349 @@
+/* 问答 Tab（SPEC-05）独立样式：不动 styles.css（并行领地互斥）。 */
+
+.chat-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-empty {
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  text-align: center;
+  margin-top: 24px;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+  max-width: 85%;
+}
+
+.chat-msg.assistant {
+  align-self: flex-start;
+  max-width: 95%;
+  width: 100%;
+}
+
+.chat-bubble {
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-bubble.user {
+  background: var(--accent-soft, #e3f2fd);
+}
+
+.chat-bubble.ai {
+  background: var(--bg-elevated, #f5f5f5);
+}
+
+.chat-answer-text {
+  white-space: pre-wrap;
+}
+
+.chat-caret {
+  opacity: 0.6;
+}
+
+.chat-covered-bar {
+  background: #fff7d6;
+  border: 1px solid #f0d878;
+  color: #8a6d00;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.chat-error {
+  background: #fdecec;
+  border: 1px solid #f2b8b5;
+  color: #b3261e;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.chat-keypoints {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-secondary, #666);
+}
+
+.chat-keypoints li {
+  margin: 2px 0;
+}
+
+.chat-timestamps {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-ts {
+  border: 1px solid var(--accent, #1e88e5);
+  color: var(--accent, #1e88e5);
+  background: transparent;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  cursor: pointer;
+}
+
+.chat-followups {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.chat-followup {
+  background: transparent;
+  border: 1px dashed var(--border, #ccc);
+  border-radius: 6px;
+  color: var(--text-primary, #333);
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-term-extra {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-related-chip {
+  background: var(--bg-chip, #eef1f4);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.chat-needs-web {
+  color: #8a6d00;
+  font-size: 12px;
+}
+
+.chat-loading {
+  align-self: flex-start;
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  padding: 2px 10px;
+}
+
+/* 等待中（SPEC-10 10.6）：呼吸圆点 + 已耗时 */
+.chat-loading-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-loading-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #4a7dff);
+  animation: chat-loading-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes chat-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.chat-range-bar {
+  border-top: 1px solid var(--border, #e0e0e0);
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.chat-range-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-range-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-range-input {
+  width: 56px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.chat-range-input:hover:not(:focus) {
+  border-color: var(--border-strong, #c9cdd4);
+}
+
+.chat-range-input:focus {
+  border-color: var(--accent, #165dff);
+  box-shadow: var(--ring, 0 0 0 3px rgba(22, 93, 255, 0.14));
+}
+
+.chat-range-current {
+  margin-left: auto;
+  color: var(--text-secondary, #666);
+  font-family: monospace;
+}
+
+.chat-input-bar {
+  border-top: 1px solid var(--border, #e0e0e0);
+  padding: 8px 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-input {
+  flex: 1;
+  resize: none;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  font-family: inherit;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.chat-input:hover:not(:focus) {
+  border-color: var(--border-strong, #c9cdd4);
+}
+
+.chat-input:focus {
+  border-color: var(--accent, #165dff);
+  box-shadow: var(--ring, 0 0 0 3px rgba(22, 93, 255, 0.14));
+}
+
+.chat-send {
+  flex-shrink: 0;
+}
+
+.chat-pending {
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* ===== 问答：图片上传（题目 / 截图） ===== */
+.chat-upload-btn {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.chat-upload-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 0;
+  border-top: 1px solid var(--border, #e0e0e0);
+}
+.chat-upload-item {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e5e6eb;
+  background: #f7f8fa;
+}
+.chat-upload-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chat-upload-remove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.chat-upload-count {
+  font-size: 12px;
+  color: #4e5969;
+}
+.chat-upload-error {
+  font-size: 12px;
+  color: #d93026;
+}
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.chat-attachment {
+  max-width: 120px;
+  max-height: 90px;
+  border-radius: 4px;
+  object-fit: contain;
+  background: #fff;
+}
+
+/* ===== UI 精修（2026-10-09）：问答控件交互态 ===== */
+
+/* 区间单选 label：整块可点暗示（radio 本体 accent-color 全局已改） */
+.chat-range-option {
+  transition: color 140ms ease;
+}
+
+.chat-range-option:hover {
+  color: var(--accent, #165dff);
+}

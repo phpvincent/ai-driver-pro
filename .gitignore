@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.zip
+*.crx
+*.pem
+
+# test & coverage
+coverage/
+.vitest-cache/
+
+# local secrets and env
+.env
+.env.*
+!.env.example
+
+# recorded fixtures may contain cookies/tokens before scrubbing
+tests/fixtures/raw/
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.timestamp-*.mjs
