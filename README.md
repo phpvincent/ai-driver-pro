@@ -97,6 +97,8 @@ npm install && npm run build   # 构建产物在 dist/，加载方式同上
 
 **支持哪些视频？** B 站有字幕的教学视频效果最好。手机 B 站 App 不支持浏览器扩展。
 
+**报错 "The supported API model names are deepseek-flash, deepseek-v4-pro"？** 模型名必须与 API 的**规范名完全一致（区分大小写）**。你填的可能是官网营销名（如 `DeepSeek-V4.1-Flash`）——改成小写规范名 `deepseek-flash` 或 `deepseek-v4-pro`，保存后点「测试连接」确认。用预设方案则不会遇到此问题。
+
 ## 开发
 
 ```bash
