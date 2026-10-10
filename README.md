@@ -37,9 +37,11 @@ B 站教学视频的 AI 学习侧边栏：字幕 → 章节大纲 → 知识流�
 
 **方式二：免构建安装（推荐给不想碰命令行的用户）**：
 
-1. 到 [Releases 页面](https://github.com/phpvincent/ai-driver-pro/releases) 下载最新的 `ai-driver-pro-*.zip` 并解压
-2. Chrome 打开 `chrome://extensions` → 开启右上角「开发者模式」→「加载已解压的扩展程序」→ 选择**解压出来的文件夹**
-3. 打开任意 B 站视频，点击浏览器工具栏图标唤出侧边栏
+1. 到 [Releases 页面](https://github.com/phpvincent/ai-driver-pro/releases)，在最新版本的 **Assets** 区下载 `ai-driver-pro-vX.Y.Z.zip` 并解压
+   > ⚠️ **不要下载页面下方的 "Source code (zip)"**——那是源码包，没有构建产物，加载必然报错（缺 content.js / icons）。认准 Assets 里我们上传的 `ai-driver-pro-*.zip`。
+2. 解压后得到 `ai-driver-pro/` 文件夹（里面应能看到 `manifest.json`、`content.js`、`icons/`——缺任何一个就是下错了包）
+3. Chrome 打开 `chrome://extensions` → 开启右上角「开发者模式」→「加载已解压的扩展程序」→ 选择**解压出来的 `ai-driver-pro` 文件夹**
+4. 打开任意 B 站视频，点击浏览器工具栏图标唤出侧边栏
 
 **方式三：从源码构建（面向开发者）**——仓库里是源代码，不含构建产物，需要 Node.js：
 
