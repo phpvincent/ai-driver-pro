@@ -169,9 +169,11 @@ export function chunkTypewriter(text: string): string[] {
 
 /**
  * referencedTimestamps（秒）吸附到最近 Cue 开始时间（A3：渲染前吸附，越界丢弃）。
- * 越界 = 早于首句前 5s 或晚于末句结束后 5s；吸附结果去重并升序。
+ * 越界 = 早于首句前 5s 或晚于末句结束后 5s；**且与最近 Cue 距离 > maxGapMs 的丢弃**
+ * （SPEC-15 九轮：模型换算偏差的秒数若吸到 30s 外的无关句起点，点击跳转位置就
+ * "不对"——宁可不渲染也不跳错。吸附结果去重并升序）。
  */
-export function snapTimestamps(seconds: number[], cues: Cue[]): number[] {
+export function snapTimestamps(seconds: number[], cues: Cue[], maxGapMs = 10_000): number[] {
   if (cues.length === 0 || seconds.length === 0) return [];
   const starts = cues.map((c) => c.startMs);
   const first = cues[0].startMs;
@@ -181,7 +183,8 @@ export function snapTimestamps(seconds: number[], cues: Cue[]): number[] {
     const target = sec * 1000;
     if (!Number.isFinite(target) || target < first - 5_000 || target > last + 5_000) continue;
     const nearest = nearestCueStartMs(starts, target);
-    if (nearest !== null && !out.includes(nearest)) out.push(nearest);
+    if (nearest === null || Math.abs(nearest - target) > maxGapMs) continue;
+    if (!out.includes(nearest)) out.push(nearest);
   }
   return out.sort((a, b) => a - b);
 }
@@ -225,8 +228,12 @@ export function splitInlineTimestamps(text: string, cues: Cue[]): InlineTsSegmen
     const inRange =
       cues.length > 0 && target >= first - 5_000 && target <= last + 5_000;
     const nearest = inRange ? nearestCueStartMs(starts, target) : null;
-    if (nearest !== null) out.push({ text: '', ms: nearest });
-    else out.push({ text: `${raw} `, ms: null, raw });
+    // 与 snapTimestamps 同口径：距最近 Cue > 10s 视为编造/换算错误，按普通文本渲染
+    if (nearest !== null && Math.abs(nearest - target) <= 10_000) {
+      out.push({ text: '', ms: nearest });
+    } else {
+      out.push({ text: `${raw} `, ms: null, raw });
+    }
     cursor = idx + raw.length;
   }
   if (cursor < text.length) out.push({ text: text.slice(cursor), ms: null });
@@ -927,15 +934,35 @@ export function ChatTab(props: ChatTabProps) {
                   <>
                     {m.answer.keyPoints.length > 0 && (
                       <ul className="chat-keypoints">
+                        {/* 要点是内容主战场：与 answer 同口径渲染内嵌 [mm:ss] chip
+                            （SPEC-15 九轮实测：deepseek-flash 常把内容全放要点里） */}
                         {m.answer.keyPoints.map((k, i) => (
-                          <li key={i}>{k}</li>
+                          <li key={i}>
+                            {splitInlineTimestamps(k, cues).map((seg, j) =>
+                              seg.ms !== null ? (
+                                <button
+                                  key={j}
+                                  type="button"
+                                  className="chat-ts chat-ts-inline"
+                                  onClick={() => props.onRequestSeek?.(seg.ms!)}
+                                >
+                                  [{formatMmSs(seg.ms)}]
+                                </button>
+                              ) : (
+                                <span key={j}>{seg.text}</span>
+                              ),
+                            )}
+                          </li>
                         ))}
                       </ul>
                     )}
-                    {/* 底部时间戳块：仅当正文没有有效内嵌 chip 时降级展示
+                    {/* 底部时间戳块：仅当正文与要点都没有有效内嵌 chip 时降级展示
                         （历史消息/旧模型输出无内嵌标记的兼容路径；有内嵌 chip 时
-                        referencedTimestamps 与正文标记同源，重复展示反而冗余） */}
-                    {!hasInlineTimestamps(m.text, cues) &&
+                        referencedTimestamps 与内嵌标记同源，重复展示反而冗余） */}
+                    {![
+                      m.text,
+                      ...m.answer.keyPoints,
+                    ].some((t) => hasInlineTimestamps(t, cues)) &&
                       snapTimestamps(m.answer.referencedTimestamps, cues).length > 0 && (
                         <div className="chat-timestamps">
                           {snapTimestamps(m.answer.referencedTimestamps, cues).map((ms) => (
