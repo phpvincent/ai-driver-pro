@@ -6,7 +6,7 @@
  * - apiKey 仅存于表单状态与 storage，任何提示/日志不输出其值
  *
  * 分区顺序：模型配置（含「支持图像输入」声明）→ 当前策略 → 抽帧开关 →
- * Obsidian → 验证期报告。
+ * Obsidian → 搜索增强（SPEC-15：博查 Key，独立保存 + 测试连接）→ 验证期报告。
  *
  * ## 模型配置（大纲 / 导图 / 问答共用一套）
  * 只暴露一个模型区与一个 API Key 输入框；顶部的 DeepSeek / Qwen 按钮与三个 Tab 的
@@ -26,6 +26,7 @@ import { BOCHA, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } fro
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
 import { testObsidianConnection } from '../obsidianLoader';
+import { searchBocha } from '../../core/knowledge/webSearch';
 import { downloadBackup, importBackup } from '../dataBackup';
 import { readTextFileViaInput } from '../../platform/files';
 import {
@@ -174,6 +175,8 @@ export function SettingsPage({
   const [bochaKey, setBochaKey] = useState('');
   /** 搜索增强独立保存（SPEC-15 三轮：从 Obsidian 区段拆出，防误点 Obsidian 测试连接） */
   const [bochaSaving, setBochaSaving] = useState(false);
+  /** 博查连通性自检进行中（与 Obsidian 区同款「测试连接」按钮） */
+  const [bochaTesting, setBochaTesting] = useState(false);
   const [bochaFeedback, setBochaFeedback] = useState<Feedback>(null);
   const [obsidianFeedback, setObsidianFeedback] = useState<Feedback>(null);
   const [obsidianTesting, setObsidianTesting] = useState(false);
@@ -557,6 +560,40 @@ export function SettingsPage({
       .finally(() => setBochaSaving(false));
   };
 
+  /**
+   * 博查连通性自检：用当前表单 Key 发一次真实检索（消耗 1 次额度），
+   * 成功显示返回条数，失败提示排查方向。反馈文案不输出 Key 明文。
+   * api.bochaai.com 非预置域名，先按需申请宿主权限（拒绝/不支持也照常尝试，
+   * 博查若开 CORS 仍可通；真正失败由 fetch 结果呈现，不在此拦截）。
+   */
+  const handleTestBocha = () => {
+    const key = bochaKey.trim();
+    if (!key) {
+      setBochaFeedback({ kind: 'error', text: '请先粘贴博查 API Key，再点「测试连接」' });
+      return;
+    }
+    setBochaTesting(true);
+    setBochaFeedback(null);
+    const origin = originOfBaseUrl(BOCHA.endpoint);
+    void Promise.resolve(origin ? ensureHostPermission(origin) : 'unsupported')
+      .then(() => {
+        const fetchFn = (url: string, init?: RequestInit) => fetch(url, init);
+        return searchBocha('人工智能', key, fetchFn as never, { maxResults: 1 });
+      })
+      .then((snippets) => {
+        setBochaFeedback(
+          snippets.length > 0
+            ? { kind: 'ok', text: '连接成功：博查检索返回正常（本次测试消耗 1 次额度）' }
+            : {
+                kind: 'error',
+                text: '无法连接博查：请检查 API Key 是否有效、网络是否可用（测试消耗 1 次额度）',
+              },
+        );
+      })
+      .catch(() => setBochaFeedback({ kind: 'error', text: '无法连接博查：请检查网络后重试' }))
+      .finally(() => setBochaTesting(false));
+  };
+
   /** 抽帧区是否可用：取决于「支持图像输入」勾选 */
   const visionSwitchUsable = supportsVision;
   /** 当前策略摘要：由表单当前值合成 settings 后交给纯函数 */
@@ -918,7 +955,11 @@ export function SettingsPage({
           <a href={BOCHA.consoleUrl} target="_blank" rel="noreferrer">
             博查开放平台（open.bochaai.com）
           </a>
-          微信扫码注册（免费，无需信用卡）→ 首页「购买资源包」领取免费的 1000 次试用包 →
+          微信扫码注册（免费，无需信用卡） →
+          <a href={BOCHA.packageUrl} target="_blank" rel="noreferrer">
+            「购买资源包」页领取免费的 1000 次试用包
+          </a>
+          →
           「API KEY 管理」创建并复制 API Key 粘贴到下方，点「保存」生效。
           不配置则使用内置检索（Wikipedia + DuckDuckGo），功能不受影响
         </p>
@@ -942,6 +983,14 @@ export function SettingsPage({
             disabled={bochaSaving}
           >
             {bochaSaving ? '保存中…' : '保存'}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleTestBocha}
+            disabled={bochaTesting || bochaSaving}
+          >
+            {bochaTesting ? '测试中…' : '测试连接'}
           </button>
         </div>
         {bochaFeedback && (
