@@ -8,7 +8,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { Markmap } from 'markmap-view';
 import type { CanvasKind } from '../core/pipeline/freeCanvas';
 import type { Section } from '../types';
-import { generateCanvasFor, getCanvasCached, getCanvasInflight, type CanvasRecord } from './canvasLoader';
+import {
+  generateCanvasFor,
+  getCanvasCached,
+  getCanvasInflight,
+  isCanvasBusy,
+  subscribeCanvasBusy,
+  type CanvasRecord,
+} from './canvasLoader';
 import { canvasDownloadFileName } from '../core/pipeline/freeCanvas';
 import { downloadTextFile } from '../platform/files';
 import { GenerationProgress } from './GenerationProgress';
@@ -29,6 +36,12 @@ interface CanvasPanelProps {
 export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, onOpenSettings }: CanvasPanelProps) {
   const [rec, setRec] = useState<CanvasRecord | null>(null);
   const [busy, setBusy] = useState(false);
+  /** 跨画布互斥：任一画布生成中（含本面板），生成按钮禁用 */
+  const [canvasBusy, setCanvasBusyState] = useState(isCanvasBusy());
+  useEffect(() => {
+    setCanvasBusyState(isCanvasBusy());
+    return subscribeCanvasBusy(() => setCanvasBusyState(isCanvasBusy()));
+  }, []);
   /** 已渲染的 SVG（下载用）：思维导图=svg 元素引用，流程图=svg 字符串 */
   const markmapSvgRef = useRef<SVGSVGElement | null>(null);
   const [mermaidSvg, setMermaidSvg] = useState('');
@@ -69,7 +82,7 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
   }, [kind, videoId]);
 
   const generate = () => {
-    if (!videoId || sections.length === 0 || busy) return;
+    if (!videoId || sections.length === 0 || busy || isCanvasBusy()) return;
     setBusy(true);
     setError(null);
     setRenderError(null);
@@ -91,8 +104,14 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
     <div className="canvas-toolbar">
       <span className="canvas-badge">AI 自由作图</span>
       {modelReady && (
-        <button type="button" className="btn" onClick={generate} disabled={busy}>
-          {busy ? '生成中…' : rec ? '重新生成' : '生成'}
+        <button
+          type="button"
+          className="btn"
+          onClick={generate}
+          disabled={busy || canvasBusy}
+          title={canvasBusy && !busy ? '另一画布正在生成（抽帧需互斥，避免画面来回跳）' : undefined}
+        >
+          {busy ? '生成中…' : canvasBusy ? '另一画布生成中…' : rec ? '重新生成' : '生成'}
         </button>
       )}
       {!modelReady && onOpenSettings && (
