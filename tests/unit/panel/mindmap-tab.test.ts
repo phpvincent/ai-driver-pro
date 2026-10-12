@@ -713,51 +713,45 @@ describe('流程图视图（冒烟 3b：draw.io 式）', () => {
     expect(layout.height).toBeGreaterThan(0);
   });
 
-  it('默认视图为流程图：渲染 cmf-svg / 阶段列头 / 顺序边；旧缓存提示重新生成', () => {
+  it('默认视图为流程图：SPEC-13 起为 AI 自由画布（mermaid），不再渲染固定 draw.io 版式', () => {
     const html = renderToString(
       createElement(MindmapTab, {
         sections,
         positionMs: 0,
         onRequestSeek: noop,
         conceptMap: mapData(stageFlow()),
+        modelReady: true,
       }),
     );
-    expect(html).toContain('cmf-svg');
-    expect(html).toContain('cmf-stage-rect');
-    expect(html).toContain('cmf-edge seq');
-    // 旧缓存（无 flows）：显示提示条（按钮仅在注入 generateFlows 后渲染）
-    expect(html).toContain('还没有逻辑关系边');
+    expect(html).toContain('canvas-panel');
+    expect(html).toContain('AI 自由作图');
+    expect(html).not.toContain('cmf-svg');
   });
 
-  it('注入 generateFlows 后：无 flows 显示「生成关系边」按钮', () => {
+  it('思维导图视图（原时间轴）：AI 层级导图画布', () => {
     const html = renderToString(
       createElement(MindmapTab, {
         sections,
         positionMs: 0,
         onRequestSeek: noop,
-        conceptMap: mapData(stageFlow()),
-        generateFlows: async () => [],
+        initialView: 'chrono',
+        modelReady: true,
       }),
     );
-    expect(html).toContain('生成关系边');
+    expect(html).toContain('canvas-panel');
+    expect(html).toContain('按知识逻辑自由梳理');
   });
 
-  it('带 flows 的数据：渲染 flow 边与边标签；无效引用被丢弃', () => {
-    const data = mapData(stageFlow());
-    data.flows = [
-      { fromId: 'cm_0001', toId: 'cm_0003', label: '产出' },
-      { fromId: 'cm_0001', toId: 'cm_9999', label: '幽灵' },
-    ];
+  it('无章节时自由画布给出"先生成大纲"引导（不发起生成）', () => {
     const html = renderToString(
       createElement(MindmapTab, {
-        sections,
+        sections: [],
         positionMs: 0,
         onRequestSeek: noop,
-        conceptMap: data,
+        initialView: 'chrono',
+        modelReady: true,
       }),
     );
-    expect(html).toContain('cmf-edge flow');
-    expect(html).toContain('产出');
-    expect(html).not.toContain('幽灵');
+    expect(html).not.toContain('canvas-panel');
   });
 });

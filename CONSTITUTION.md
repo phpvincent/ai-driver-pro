@@ -116,3 +116,4 @@ SPEC-01 骨架 ─► SPEC-02 字幕瀑布 ─► SPEC-03 大纲 ─┬─► SP
 | SPEC-10 | 公网发布产品化（P0/P1 批次） | SPEC-09 | 已验收（spec-10-accepted，2026-10-09 F 组冒烟通过）；剩余发布动作 = CWS 提交 + 仓库 public（见 EVOLUTION-ROADMAP §0） |
 | SPEC-11 | 抽帧页聚类精修（本地扫描+dHash 页聚类+清晰度选帧） | SPEC-05 | **待验收**：纯函数层/content 轻量扫描/panel 并行接线全部完成（1104 例 +23）；[人工] B1/B2 待冒烟 |
 | SPEC-12 | 生成进度反馈与扫描预算设置 | SPEC-11 | **待验收**：progressBus/扫描进度链路/分块与阶段进度/预算设置项/进度条 UI 全部完成（1115 例 +8）；[人工] B1~B3 待冒烟 |
+| SPEC-13 | AI 自由画布（思维导图 + 流程图） | SPEC-04 | **待验收**：freeCanvas 纯函数 + 双 prompt + markmap/mermaid 渲染 + 纠错重试（1130 例全绿，CSP 零 eval）；[人工] B1~B3 待冒烟 |
