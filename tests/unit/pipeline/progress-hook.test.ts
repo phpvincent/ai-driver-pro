@@ -1,7 +1,8 @@
 /**
- * runOutline 进度钩子单测（父 agent 收尾接线补充）。
- * 断言：每个有产出的块确认后触发一次回调；done 单调递增至 total；
- * confirmed 为该时刻已合并章节快照；回调抛错不阻断 pipeline。
+ * runOutline 进度钩子单测（父 agent 收尾接线补充；SPEC-12 三轮更新契约）。
+ * 断言：模型期每个块完成即触发一次（生成期线性推进，修复"卡在抽帧 30%
+ * 突然完成"）；合并后补一次终态（携带合并后的 confirmed 快照）；
+ * done 单调递增至 total；回调抛错不阻断 pipeline。
  */
 import { describe, expect, it } from 'vitest';
 import type { Cue } from '../../../src/types';
@@ -40,15 +41,18 @@ describe('runOutline onProgress', () => {
         events.push({ done, total, confirmedLen: confirmed.length });
       },
     });
-    expect(result.chunkState.filter((s) => s.status === 'done').length).toBeGreaterThan(1);
-    expect(events.length).toBe(result.chunkState.filter((s) => s.status === 'done').length);
+    const doneCount = result.chunkState.filter((s) => s.status === 'done').length;
+    expect(doneCount).toBeGreaterThan(1);
+    // 模型期逐块一次 + 合并后一次终态
+    expect(events.length).toBe(doneCount + 1);
     expect(events[0].done).toBe(1);
     expect(events[events.length - 1].done).toBe(events[events.length - 1].total);
+    // 单调非递减（终态事件与最后一个模型事件的 done 相同，均为 total）
     for (let i = 1; i < events.length; i++) {
-      expect(events[i].done).toBe(events[i - 1].done + 1);
+      expect(events[i].done).toBeGreaterThanOrEqual(events[i - 1].done);
     }
-    // 首次回调就应有已确认章节
-    expect(events[0].confirmedLen).toBeGreaterThan(0);
+    // 终态事件携带合并后的章节快照
+    expect(events[events.length - 1].confirmedLen).toBeGreaterThan(0);
   });
 
   it('回调抛错不阻断 pipeline（进度提示非关键路径）', async () => {

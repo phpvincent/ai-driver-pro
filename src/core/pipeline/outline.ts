@@ -220,6 +220,21 @@ export async function runOutline(
     st.error = lastError;
   };
 
+  // 已完成模型调用的块数（SPEC-12 三轮：生成期的进度必须逐块推进——
+  // 旧实现只在合并阶段发进度，而合并发生在全部块完成后且是瞬时同步循环，
+  // 表现为"卡在抽帧 30% 然后突然完成"）
+  let doneModelChunks = 0;
+  const emitModelProgress = (): void => {
+    if (!opts.onProgress) return;
+    try {
+      // sections 此时尚未合并（合并依赖全部块完成），传 []；该参数的
+      // 流式消费方不存在（仅 outlineLoader 转发计数），语义不受影响
+      opts.onProgress([], doneModelChunks, chunks.length);
+    } catch {
+      /* 进度回调异常忽略：非关键路径 */
+    }
+  };
+
   // 简单工作池：N 个 worker 从队列取块，无额外依赖
   const worker = async (): Promise<void> => {
     for (;;) {
@@ -227,6 +242,8 @@ export async function runOutline(
       nextIdx += 1;
       if (i >= chunks.length) return;
       await processChunk(i);
+      doneModelChunks += 1;
+      emitModelProgress();
     }
   };
   const workerCount = Math.max(1, Math.min(concurrency, chunks.length));
@@ -246,13 +263,14 @@ export async function runOutline(
     droppedBySnap += dropped;
     merger.addChunk(kept);
     doneChunks += 1;
-    // 进度钩子：每确认一个块的章节后回调（UI 流式渲染用；异常不阻断 pipeline）
-    if (opts.onProgress) {
-      try {
-        opts.onProgress(merger.getSections(), doneChunks, chunks.length);
-      } catch {
-        /* 回调异常忽略：进度提示非关键路径 */
-      }
+  }
+  // 合并是瞬时同步阶段，进度已在 worker 逐块发过；这里只补一次终态
+  // （携带合并后的 sections，保持钩子契约不变）
+  if (opts.onProgress && doneChunks === chunks.length) {
+    try {
+      opts.onProgress(merger.getSections(), chunks.length, chunks.length);
+    } catch {
+      /* 回调异常忽略：非关键路径 */
     }
   }
 
