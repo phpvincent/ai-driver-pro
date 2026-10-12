@@ -57,7 +57,7 @@ describe('buildPersonaPrompt userHint（重判角色用户补充）', () => {
     });
     expect(withHint.userPrompt).toContain('用户指定的角色期望');
     expect(withHint.userPrompt).toContain('考研数学老师');
-    expect(withHint.userPrompt).toContain('最高优先级');
+    expect(withHint.userPrompt).toContain('以此为主');
   });
   it('超长 hint 截断到 500 字', () => {
     const withHint = buildPersonaPrompt({
