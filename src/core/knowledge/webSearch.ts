@@ -201,10 +201,17 @@ export function buildWebContext(
 
 import { BOCHA, WIKIPEDIA } from '../../config';
 
-/** 博查响应解析（纯函数，导出供单测）：webPages.value[].{name,url,snippet,summary} */
+/**
+ * 博查响应解析（纯函数，导出供单测）：{code,data:{webPages:{value[]}}}。
+ * 实测（2026-10-13）真实响应把 webPages 包在 data 下；兼容根级 webPages 的旧形状。
+ * 条目取 name/url/snippet/summary（summary 为 AI 摘要，优先）。
+ */
 export function parseBochaResults(json: unknown, maxResults: number): WebSnippet[] {
-  const root = (json ?? {}) as { webPages?: { value?: unknown } };
-  const list = root.webPages?.value;
+  const root = (json ?? {}) as {
+    data?: { webPages?: { value?: unknown } };
+    webPages?: { value?: unknown };
+  };
+  const list = root.data?.webPages?.value ?? root.webPages?.value;
   if (!Array.isArray(list)) return [];
   const out: WebSnippet[] = [];
   for (const r of list) {
@@ -252,6 +259,9 @@ export async function searchBocha(
     );
     if (!res || res.ok !== true) return [];
     const json: unknown = await res.json();
+    // 博查可能 HTTP 200 但 body.code 非法（如 Key 无效/额度耗尽）——按失败处理走瀑布兜底
+    const bodyCode = (json as { code?: unknown } | null)?.code;
+    if (typeof bodyCode === 'number' && bodyCode !== 200) return [];
     return parseBochaResults(json, maxResults);
   } catch {
     return [];
