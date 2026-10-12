@@ -30,6 +30,7 @@ import {
   type NotesState,
 } from './notes/notesLoader';
 import { NoteModal, SectionNotes, UnanchoredNotes, type NoteEditorRequest } from './notes/NotesUi';
+import { GenerationProgress } from './GenerationProgress';
 import { downloadTextFile, readTextFileViaInput } from '../platform/files';
 
 export interface OutlineTabProps {
@@ -774,6 +775,7 @@ export function OutlineTab(props: OutlineTabProps) {
         {pickerRow}
         <div className="tab-placeholder">
           <p>{OUTLINE_PHASE_TEXT.loading}</p>
+          {videoId && <GenerationProgress videoId={videoId} />}
         </div>
       </div>
     );
