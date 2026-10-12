@@ -26,16 +26,19 @@ describe('shouldSearchWeb（检索路由，SPEC-15）', () => {
   });
 });
 
-describe('parseBochaResults（博查响应：webPages.value[]）', () => {
-  it('提取 {name,url,snippet,summary}；summary 优先；缺 url/摘要丢弃；截 400 字', () => {
+describe('parseBochaResults（博查响应：data.webPages.value[]，实测形状）', () => {
+  it('真实形状 {code,data:{webPages}}：提取 {name,url,snippet,summary}；summary 优先；缺 url/摘要丢弃；截 400 字', () => {
     const json = {
-      webPages: {
-        value: [
-          { name: 'T1', url: 'https://a.com', snippet: 'S1', summary: '摘要优先' },
-          { name: '', url: 'https://b.com', snippet: 'S2' },
-          { name: 'T3', snippet: 'no url' },
-          { name: 'T4', url: 'https://d.com', snippet: 'x'.repeat(500) },
-        ],
+      code: 200,
+      data: {
+        webPages: {
+          value: [
+            { name: 'T1', url: 'https://a.com', snippet: 'S1', summary: '摘要优先' },
+            { name: '', url: 'https://b.com', snippet: 'S2' },
+            { name: 'T3', snippet: 'no url' },
+            { name: 'T4', url: 'https://d.com', snippet: 'x'.repeat(500) },
+          ],
+        },
       },
     };
     const out = parseBochaResults(json, 5);
@@ -44,10 +47,15 @@ describe('parseBochaResults（博查响应：webPages.value[]）', () => {
     expect(out[1]!.title).toBe('https://b.com'); // 无标题回落 url
     expect(out[2]!.snippet.length).toBe(400); // 截断
     expect(parseBochaResults({}, 5)).toEqual([]);
-    expect(parseBochaResults({ webPages: { value: 'oops' } }, 5)).toEqual([]);
+    expect(parseBochaResults({ data: { webPages: { value: 'oops' } } }, 5)).toEqual([]);
+    expect(parseBochaResults({ code: 401, data: {} }, 5)).toEqual([]);
+  });
+  it('兼容根级 webPages 旧形状', () => {
+    const json = { webPages: { value: [{ name: 'T', url: 'https://a.com', snippet: 'S' }] } };
+    expect(parseBochaResults(json, 5)).toHaveLength(1);
   });
   it('maxResults 上限生效', () => {
-    const json = { webPages: { value: Array.from({ length: 8 }, (_, i) => ({ name: `T${i}`, url: `https://${i}.com`, snippet: 'C' })) } };
+    const json = { data: { webPages: { value: Array.from({ length: 8 }, (_, i) => ({ name: `T${i}`, url: `https://${i}.com`, snippet: 'C' })) } } };
     expect(parseBochaResults(json, 3)).toHaveLength(3);
   });
 });
