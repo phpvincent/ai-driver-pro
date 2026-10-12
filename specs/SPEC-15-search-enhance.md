@@ -15,7 +15,7 @@
 
 - **路由 shouldSearchWeb（纯函数）**：术语解释必检；含时新/外部词（最新/版本/发布/官网/新闻/价格…）必检；其余仅当知识库与字幕都无命中才检（课内无依据）。省请求、防噪音、护隐私
 - **三级瀑布**：有博查 Key → 博查 + Wikipedia 并行合并；无 Key → Wikipedia；两者皆空 → DDG Instant Answer 兜底（现状）。全程静默降级不 throw
-- **博查**：POST /v1/web-search（Bearer Key，summary=true，max 5 条）；失败/无 Key 静默跳过
+- **博查**：POST /v1/web-search（Bearer Key，summary=true，max 5 条）；失败/无 Key 静默跳过。响应形状为 `{code, msg, data:{webPages:{value[]}}}`（2026-10-13 实测修正：初版误读根级 webPages 导致"测试连接"误报失败与检索静默空结果；同时校验 body.code ≠ 200 按失败处理）
 - **Wikipedia 中文**：MediaWiki action=query&list=search（免 Key，srlimit=2，剥 HTML 标签）
 - **设置页**：搜索增强（可选）独立区段：密码输入 + 独立「保存」与「测试连接」按钮（2026-10-13 三轮：从 Obsidian 区段拆出防误点；测试连接用当前表单 Key 发一次真实检索，消耗 1 次额度）+ 博查开放平台链接（open.bochaai.com/api-keys，API Key 管理）+ 免费额度领取链接（open.bochaai.com/package/purchase，微信扫码注册免费领 1000 次试用包，无需信用卡）+ 获取步骤提示
 - 端点全部来自 config 常量（红线 9）；检索内容仍受 webContextMaxChars 预算（红线 3）
