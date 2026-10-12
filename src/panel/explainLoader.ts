@@ -33,7 +33,13 @@ import type { ExplainRequest, ExplainResponse } from './ChatTab';
 import { getObsidianConfig, readIndex } from './obsidianLoader';
 import { personaInstruction } from '../core/pipeline/persona';
 import { getPersonaCached } from './personaLoader';
-import { buildWebContext, searchWeb, trimSnippets } from '../core/knowledge/webSearch';
+import {
+  buildWebContext,
+  searchTavily,
+  searchWeb,
+  searchWikipedia,
+  trimSnippets,
+} from '../core/knowledge/webSearch';
 import { CONTEXT } from '../config';
 import { frameBudgetFor } from '../core/vision/framePlanner';
 import { captionFrame } from '../core/vision/structuralCandidates';
@@ -102,12 +108,56 @@ async function loadKnowledge(args: {
  * 每次问答自动检索一次；失败 / 超时 / 无结果一律返回空，回答照常（红线 8）。
  * 结果走与字幕、知识库同一预算（红线 3）。
  */
-async function loadWeb(query: string): Promise<{ snippets: WebSnippet[]; context: string }> {
+/**
+ * 检索路由（SPEC-15，纯函数，导出供单测）：判断这个问题是否需要公开资料。
+ * 课内知识能答的（字幕/章节/知识库命中）不检索——省请求、防噪音、护隐私。
+ * 规则两层：
+ * ① 显式信号必检：术语解释（needsWeb 模型可自报）、含时新/外部工具词；
+ * ② 其余：知识库与字幕都无命中时检索（模型在课内找不到依据）。
+ */
+export function shouldSearchWeb(args: {
+  term?: string;
+  question: string;
+  hasKnowledgeHits: boolean;
+  hasCues: boolean;
+}): boolean {
+  const q = `${args.term ?? ''} ${args.question}`.trim();
+  const explicit = ['最新', '现在', '今天', '2025', '2026', '版本', '发布', '官网', '新闻', '行情', '价格'];
+  if (args.term) return true; // 术语解释：概念定义优先外部权威
+  if (explicit.some((k) => q.includes(k))) return true;
+  return !args.hasKnowledgeHits && !args.hasCues; // 课内无依据才外查
+}
+
+/**
+ * 公开资料三级瀑布（SPEC-15）：Tavily（用户 Key）→ Wikipedia 中文 → DuckDuckGo。
+ * 任一层拿到结果即止；Tavily 与 Wikipedia 可并行（互不依赖），
+ * 两者都空再走 DDG 兜底。全程静默降级。
+ */
+async function loadWeb(
+  query: string,
+  tavilyKey?: string,
+): Promise<{ snippets: WebSnippet[]; context: string }> {
+  const fetchFn = (url: string, init?: RequestInit) => fetch(url, init);
   try {
-    const raw = await searchWeb(
-      query,
-      ((url: string, init?: RequestInit) => fetch(url, init)) as never,
-    );
+    if (tavilyKey && tavilyKey.trim().length > 0) {
+      const [tavily, wiki] = await Promise.all([
+        searchTavily(query, tavilyKey, fetchFn as never),
+        searchWikipedia(query, fetchFn as never),
+      ]);
+      const merged = [...tavily, ...wiki];
+      if (merged.length > 0) {
+        const snippets = trimSnippets(merged, CONTEXT.webContextMaxChars);
+        return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
+      }
+    } else {
+      const wiki = await searchWikipedia(query, fetchFn as never);
+      if (wiki.length > 0) {
+        const snippets = trimSnippets(wiki, CONTEXT.webContextMaxChars);
+        return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
+      }
+    }
+    // 兜底：DDG Instant Answer（现状行为）
+    const raw = await searchWeb(query, fetchFn as never);
     const snippets = trimSnippets(raw, CONTEXT.webContextMaxChars);
     return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
   } catch {
@@ -248,8 +298,16 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     enabled: knowledgeSearch,
   });
 
-  // 公开资料检索（内置 DuckDuckGo，免配置；与字幕/知识库共享预算）
-  const web = await loadWeb(args.term ?? args.question);
+  // 公开资料检索（SPEC-15：路由判断 → Tavily/Wikipedia/DDG 三级瀑布）
+  const needWeb = shouldSearchWeb({
+    term: args.term,
+    question: args.question,
+    hasKnowledgeHits: (knowledge.hits?.length ?? 0) > 0,
+    hasCues: cues.length > 0,
+  });
+  const web = needWeb
+    ? await loadWeb(args.term ?? args.question, settings.tavilyApiKey)
+    : { snippets: [] as WebSnippet[], context: '' };
   // 学生上传的图：只要模型支持图像就发（与抽帧开关无关——用户显式上传，意图明确）
   const uploads = modelSupportsVisionOf(model, settings) ? (args.uploads ?? []) : [];
   if ((args.uploads?.length ?? 0) > 0 && uploads.length === 0) {
