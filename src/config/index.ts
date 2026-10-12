@@ -120,6 +120,8 @@ export const BOCHA = {
   defaultMaxResults: 5,
   /** 开放平台（设置页引导链接用，红线 9：URL 唯一来源） */
   consoleUrl: 'https://open.bochaai.com/api-keys',
+  /** 免费资源包领取页（1000 次试用包，设置页引导链接用） */
+  packageUrl: 'https://open.bochaai.com/package/purchase',
 } as const;
 
 export const WIKIPEDIA = {
