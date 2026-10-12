@@ -483,6 +483,7 @@ export function OutlineTab(props: OutlineTabProps) {
   onSectionsChanged,
     modelReady,
     onOpenSettings,
+    onAskAbout,
   } = props;
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<OutlineResult | null>(null);
@@ -949,6 +950,7 @@ export function OutlineTab(props: OutlineTabProps) {
         regeneratingId={regeneratingId}
         regenError={regenError}
         onSubmitRegen={handleRegenerateSection}
+        onAskAbout={onAskAbout}
         notesState={notesState}
         onOpenEditor={setNoteModal}
       />
