@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   captureFrameAt,
   captureFrames,
+  isCaptureInProgress,
+  scanFrames,
   computeCanvasSize,
   registerFrameCaptureHandler,
   toBase64,
@@ -437,5 +439,60 @@ describe('registerFrameCaptureHandler（CAPTURE_FRAMES）', () => {
     await captureFrames(video, [10_000], { drawToDataUrl: draw });
     expect(video.paused).toBe(true);
     expect(video.currentTime).toBe(0);
+  });
+});
+
+// ---------- scanFrames（SPEC-11 A5：轻量扫描） ----------
+
+describe('scanFrames（轻量扫描 / 预算截断 / 播放状态恢复）', () => {
+  /** 注入版描述：按点时间返回可区分的 dhash 与清晰度 */
+  const fakeDescribe = (video: HTMLVideoElementLike): { dhash: string; sharpness: number } => ({
+    dhash: video.currentTime < 5 ? '0000000000000000' : 'ffffffffffffffff', // currentTime 是秒：2s→A 页，6s→B 页
+    sharpness: Math.round(video.currentTime * 10),
+  });
+
+  it('空点集 → 空样本（零 seek）', async () => {
+    const v = new FakeVideo();
+    const out = await scanFrames(v, [], { describeScan: fakeDescribe });
+    expect(out).toEqual([]);
+    expect(v.seekCount).toBe(0);
+  });
+
+  it('非法点（负数 / NaN）被过滤；合法点全部扫到且顺序保留', async () => {
+    const v = new FakeVideo();
+    const out = await scanFrames(v, [-1000, 2000, Number.NaN, 6000], {
+      budgetMs: 60_000,
+      describeScan: fakeDescribe,
+    });
+    expect(out.map((x) => x.tMs)).toEqual([2000, 6000]);
+    expect(out[0]!.dhash).toBe('0000000000000000');
+    expect(out[1]!.dhash).toBe('ffffffffffffffff');
+  });
+
+  it('预算耗尽即停（budgetMs < 0 → 首点前即超时，返回空）', async () => {
+    const v = new FakeVideo();
+    const out = await scanFrames(v, [1000, 2000, 3000], {
+      budgetMs: -1,
+      describeScan: fakeDescribe,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('扫描后恢复原播放位置；进行中标志复位', async () => {
+    const v = new FakeVideo({ autoSeek: true });
+    v.currentTime = 42;
+    let sawInProgress = false;
+    const describe = (video: HTMLVideoElementLike): { dhash: string; sharpness: number } => {
+      sawInProgress = sawInProgress || isCaptureInProgress();
+      return fakeDescribe(video);
+    };
+    const out = await scanFrames(v, [1000, 2000], {
+      budgetMs: 60_000,
+      describeScan: describe,
+    });
+    expect(out).toHaveLength(2);
+    expect(sawInProgress).toBe(true);
+    expect(isCaptureInProgress()).toBe(false);
+    expect(v.currentTime).toBeCloseTo(42, 1);
   });
 });

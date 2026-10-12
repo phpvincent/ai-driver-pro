@@ -90,6 +90,14 @@ export function routeBackgroundMessage(msg: RuntimeMessage, ctx: RouteContext): 
       }
       return [{ kind: 'captureFrames', tabId, message: msg }];
     }
+    case MSG.SCAN_FRAMES: {
+      // 轻量扫描（SPEC-11）：转发口径同 CAPTURE_FRAMES，失败回空样本
+      const tabId = ctx.getTabIdByVideoId(msg.payload.videoId);
+      if (tabId === null) {
+        return [{ kind: 'respond', response: { samples: [] } as unknown as VideoInfoPayload }];
+      }
+      return [{ kind: 'captureFrames', tabId, message: msg }];
+    }
     case MSG.CURRENT_VIDEO_GET: {
       // 全屏单视图（panel.html?view=xxx）自身是活跃 tab，映射里查不到；
       // 回退最近检测到的视频（播放进度走 PLAYBACK_CHANGED 广播自动跟上）

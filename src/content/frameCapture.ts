@@ -7,9 +7,10 @@
  * 纯函数（computeCanvasSize / toBase64）可脱离浏览器测试；drawToDataUrl 可注入，
  * 单测用假 video + 假绘制函数驱动，无需 jsdom。
  */
-import { MSG, type CapturedFrame, type RuntimeMessage } from '../messages';
+import { MSG, type CapturedFrame, type RuntimeMessage, type ScannedSample } from '../messages';
 import type { VideoId } from '../types';
 import { DHASH_H, DHASH_W, dhashFromGray, grayFromRgba } from '../core/vision/dhash';
+import { sharpnessFromGray } from '../core/vision/pageCluster';
 
 /**
  * 默认最长边像素（panel 会通过 payload.maxSize 传 VISION.maxSize 覆盖）。
@@ -316,6 +317,119 @@ export function registerFrameCaptureHandler(
         sendResponse({ frames });
       } catch {
         sendResponse({ frames: [] });
+      }
+    })();
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 轻量扫描（SPEC-11 页聚类精修）：只算 dHash + 清晰度，不导 JPEG
+// ---------------------------------------------------------------------------
+
+/** 清晰度网格尺寸（拉普拉斯方差用；32×18 足够分辨"翻页模糊 vs 停稳"） */
+const SCAN_W = 32;
+const SCAN_H = 18;
+
+/**
+ * 单点轻量描述（纯像素计算，无模型）：9×8 灰度 → dHash；32×18 灰度 → 清晰度。
+ * 任何异常返回 dhash='' + sharpness=0（调用方视为该点失败，不影响其余点）。
+ */
+function describeScanPoint(video: HTMLVideoElementLike): { dhash: string; sharpness: number } {
+  try {
+    if (typeof document === 'undefined') return { dhash: '', sharpness: 0 };
+    const src = video as unknown as CanvasImageSource;
+    // dHash 画布（9×8）
+    const tiny = document.createElement('canvas');
+    tiny.width = DHASH_W;
+    tiny.height = DHASH_H;
+    const tctx = tiny.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!tctx) return { dhash: '', sharpness: 0 };
+    tctx.drawImage(src, 0, 0, DHASH_W, DHASH_H);
+    const dhash = dhashFromGray(grayFromRgba(tctx.getImageData(0, 0, DHASH_W, DHASH_H).data));
+    // 清晰度画布（32×18）——亮度通道近似（RGBA 灰度化的同一口径）
+    const scan = document.createElement('canvas');
+    scan.width = SCAN_W;
+    scan.height = SCAN_H;
+    const sctx = scan.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
+    if (!sctx) return { dhash, sharpness: 0 };
+    sctx.drawImage(src, 0, 0, SCAN_W, SCAN_H);
+    const sharpness = sharpnessFromGray(
+      grayFromRgba(sctx.getImageData(0, 0, SCAN_W, SCAN_H).data),
+      SCAN_W,
+      SCAN_H,
+    );
+    return { dhash, sharpness };
+  } catch {
+    return { dhash: '', sharpness: 0 };
+  }
+}
+
+/**
+ * 扫描采样点（轻量）：顺序 seek，每点只算哈希与清晰度（不导 JPEG，成本约为
+ * 全帧采集的百分之一）。总时间预算超时即返回已扫部分（graceful partial，
+ * 不阻塞主流程——panel 侧对缺失点直接保持原目标）。
+ * 播放状态保护与 captureFrames 同一口径（暂停 → 恢复）。
+ */
+/** 扫描点描述注入（单测用；缺省走浏览器 canvas 实现） */
+export type DescribeScanPoint = (video: HTMLVideoElementLike) => { dhash: string; sharpness: number };
+
+export async function scanFrames(
+  video: HTMLVideoElementLike,
+  pointsMs: readonly number[],
+  opts: { budgetMs?: number; timeoutMs?: number; describeScan?: DescribeScanPoint } = {},
+): Promise<ScannedSample[]> {
+  const budgetMs = opts.budgetMs ?? 25_000;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const points = Array.isArray(pointsMs) ? pointsMs.filter((t) => Number.isFinite(t) && t >= 0) : [];
+  if (points.length === 0) return [];
+  const originMs = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+  const wasPlaying = !video.paused;
+  if (wasPlaying) video.pause?.();
+  captureInProgress = true;
+  const startedAt = Date.now();
+  const samples: ScannedSample[] = [];
+  try {
+    for (const tMs of points) {
+      // 时间预算：超了就停（已扫部分有效）
+      if (Date.now() - startedAt > budgetMs) break;
+      await seekTo(video, tMs / 1000, timeoutMs);
+      const describe = opts.describeScan ?? describeScanPoint;
+      const { dhash, sharpness } = describe(video);
+      samples.push({ tMs, dhash, sharpness });
+    }
+  } finally {
+    captureInProgress = false;
+  }
+  await restorePlayback(video, originMs, wasPlaying);
+  return samples;
+}
+
+/**
+ * 注册 SCAN_FRAMES 消息监听（panel → background → content，SPEC-11）。
+ * 校验与降级口径同 CAPTURE_FRAMES：videoId 不一致 / 无 video / 抛错 → { samples: [] }。
+ */
+export function registerScanFramesHandler(
+  getVideoId: () => VideoId | null,
+  getVideo: () => HTMLVideoElementLike | null,
+): void {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    const msg = message as RuntimeMessage;
+    if (msg.type !== MSG.SCAN_FRAMES) return;
+    void (async () => {
+      const video = getVideo();
+      const videoId = getVideoId();
+      const payload = msg.payload;
+      if (!video || (videoId !== null && payload?.videoId !== videoId)) {
+        sendResponse({ samples: [] });
+        return;
+      }
+      try {
+        const points = Array.isArray(payload?.pointsMs) ? payload.pointsMs : [];
+        const samples = await scanFrames(video, points, { budgetMs: payload?.budgetMs });
+        sendResponse({ samples });
+      } catch {
+        sendResponse({ samples: [] });
       }
     })();
     return true;

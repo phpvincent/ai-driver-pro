@@ -114,3 +114,4 @@ SPEC-01 骨架 ─► SPEC-02 字幕瀑布 ─► SPEC-03 大纲 ─┬─► SP
 | SPEC-08 | MVP 收口与真机验证 | SPEC-06 | 已验收（spec-08-accepted，2026-10-09 冒烟 A~F 六组全过） |
 | SPEC-09 | 大纲笔记与大纲交换格式 | SPEC-08 | 已验收（spec-09-accepted，2026-10-09 冒烟通过，含笔记弹窗/全局 ⏱ 等二轮反馈修复） |
 | SPEC-10 | 公网发布产品化（P0/P1 批次） | SPEC-09 | 已验收（spec-10-accepted，2026-10-09 F 组冒烟通过）；剩余发布动作 = CWS 提交 + 仓库 public（见 EVOLUTION-ROADMAP §0） |
+| SPEC-11 | 抽帧页聚类精修（本地扫描+dHash 页聚类+清晰度选帧） | SPEC-05 | **待验收**：纯函数层/content 轻量扫描/panel 并行接线全部完成（1104 例 +23）；[人工] B1/B2 待冒烟 |

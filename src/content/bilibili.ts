@@ -6,7 +6,7 @@
 import { BILI_URL_PATTERN, BVID_REGEXES, PLAYBACK } from '../config/shared';
 import { MSG, type PlaybackPayload, type RuntimeMessage, type VideoIdPayload, type VideoInfoPayload } from '../messages';
 import { initPlayer } from './player';
-import { isCaptureInProgress, registerFrameCaptureHandler } from './frameCapture';
+import { isCaptureInProgress, registerFrameCaptureHandler, registerScanFramesHandler } from './frameCapture';
 
 // ---------- 纯函数（单测覆盖） ----------
 
@@ -222,6 +222,8 @@ function initContentScript(): void {
   initPlayer(() => currentVideoId, () => currentVideo);
   // 关键帧抽取（视觉问答）：CAPTURE_FRAMES 消息监听
   registerFrameCaptureHandler(() => currentVideoId, () => currentVideo);
+  // 页聚类精修（SPEC-11）：轻量扫描，与抽帧同一 video 依赖注入口径
+  registerScanFramesHandler(() => currentVideoId, () => currentVideo);
   handleUrlChange();
 }
 

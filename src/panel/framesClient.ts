@@ -17,6 +17,8 @@ import {
   sectionWindows,
 } from '../core/vision/framePlanner';
 import { mergeFrameTargets, requestFramePlan, suggestFrameRange } from '../core/vision/llmFramePlan';
+import { buildScanTargets, refineTargets } from '../core/vision/pageCluster';
+import type { ScannedSample } from '../messages';
 import {
   buildStructuralCandidates,
   ensureChapterCoverage,
@@ -110,6 +112,14 @@ export async function planFrames(args: FramePlanArgs): Promise<number[]> {
   const guard = (targets: number[]): number[] =>
     ensureChapterCoverage(targets, sections, candidates, { max: suggested.max, minGapMs: VISION.minGapMs });
 
+  // ⓪ 轻量扫描（SPEC-11 页聚类精修）：扫描点围绕**结构候选**（调用前已知——
+  // LLM 按编号从候选里挑、公式路径同样取自候选，扫候选邻域即覆盖一切可能的选择）。
+  // 与 LLM 规划并行启动：网络与 seek 互不抢占，扫描延迟藏进模型等待时间。
+  const scanPromise =
+    model?.apiKey && budget > 0 && candidates.length > 0
+      ? scanAroundCandidates(args.videoId, candidates).catch(() => [] as ScannedSample[])
+      : Promise.resolve([] as ScannedSample[]);
+
   // ① 模型规划（可选）
   if (model?.apiKey) {
     const plan = await requestFramePlan(
@@ -143,6 +153,8 @@ export async function planFrames(args: FramePlanArgs): Promise<number[]> {
           minGapMs: VISION.minGapMs,
         });
       }
+      // SPEC-11：页聚类精修（扫描失败/超时/无样本 → 原样返回，行为等同现状）
+      targets = refineWithScan(targets, await scanPromise);
       // 模型可自由决定每章看几帧，但不允许某章一帧都不看（导图会直接漏掉一个阶段）
       targets = guard(targets);
       const blocks = plan.coverage?.knowledgeBlocks ?? 0;
@@ -160,11 +172,15 @@ export async function planFrames(args: FramePlanArgs): Promise<number[]> {
   }
 
   // ② 确定性回退：结构候选优先（章节首尾 → 知识点），不足再用打分公式补
+  //    （scanPromise 在无模型配置时为空数组——精修为恒等，零开销）
   const targets = guard(
-    mergeFrameTargets([], fallbackTargets(args, candidates, suggested), {
-      ...suggested,
-      minGapMs: VISION.minGapMs,
-    }),
+    refineWithScan(
+      mergeFrameTargets([], fallbackTargets(args, candidates, suggested), {
+        ...suggested,
+        minGapMs: VISION.minGapMs,
+      }),
+      await scanPromise,
+    ),
   );
   recordDiag({ module: args.module, source: 'formula', frames: targets.length, covers: [], targets });
   return targets;
@@ -210,6 +226,47 @@ async function readModuleModel(module: 'outline' | 'mindmap' | 'qa'): Promise<Mo
   } catch {
     return null;
   }
+}
+
+/**
+ * 轻量扫描候选邻域（SPEC-11）：构建采样点 → SCAN_FRAMES → 样本。
+ * 任何失败（消息断 / 无 video / 超预算）由调用方 catch 成空数组 → 精修恒等。
+ */
+async function scanAroundCandidates(
+  videoId: string,
+  candidates: FrameCandidate[],
+): Promise<ScannedSample[]> {
+  const points = buildScanTargets(
+    candidates.map((c) => c.tMs),
+    {
+      windowMs: VISION.refine.windowMs,
+      stepMs: VISION.refine.stepMs,
+      maxSamples: VISION.refine.maxSamples,
+    },
+  );
+  if (points.length === 0) return [];
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: MSG.SCAN_FRAMES,
+      payload: {
+        videoId,
+        pointsMs: points,
+        budgetMs: VISION.refine.budgetMs,
+      },
+    })) as { samples?: ScannedSample[] } | null;
+    return Array.isArray(response?.samples) ? (response.samples as ScannedSample[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 页聚类精修薄封装：无样本恒等返回（行为等同现状） */
+function refineWithScan(targetsMs: number[], samples: ScannedSample[]): number[] {
+  if (samples.length === 0) return targetsMs;
+  return refineTargets(samples, targetsMs, {
+    windowMs: VISION.refine.windowMs,
+    maxDistance: VISION.dhashMaxDistance,
+  });
 }
 
 /** 向 content 请求关键帧；失败返回空数组 */
