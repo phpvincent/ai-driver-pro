@@ -6,7 +6,7 @@
  * 红线 2 消费侧：UI 跳播只用吸附后的 section.startMs。
  */
 import { chatCompletion } from '../core/harness/modelClient';
-import { publishProgress } from './progressBus';
+import { mapSpan, publishProgress } from './progressBus';
 import {
   buildOutlinePrompts,
   buildOutlineRegeneratePrompts,
@@ -95,6 +95,7 @@ export async function loadOutlineForVideo(
     // 结构感知抽帧：大纲生成时还没有章节，按固定窗口切分后用字幕画面提示词打分，
     // 按分数分配帧预算（预算内取分最高的窗口，命中提示词的字幕时刻优先）
     // 模型优先（判断如何抽最能还原完整性），失败/未配置则回退确定性公式
+    publishProgress({ videoId, stage: 'outline', done: 1, total: 100, pct: 2, label: '读取字幕' });
     const subRec = await getSubtitle(db, videoId).catch(() => null);
     const targets = await planFrames({
       videoId,
@@ -107,8 +108,13 @@ export async function loadOutlineForVideo(
         subRec?.meta?.durationMs ?? cues[cues.length - 1]?.endMs ?? 0,
       ),
       meta: { title: subRec?.meta?.title, page: subRec?.meta?.page },
+      // 全局百分比：扫描 5~20、采集 20~30、分块 30~100（本 loader 拥有整条时间轴）
+      span: { videoId, from: 5, to: 20 },
     });
-    const frames = await requestFrames({ videoId, targetsMs: targets });
+    const frames = await requestFrames(
+      { videoId, targetsMs: targets },
+      { videoId, from: 20, to: 30 },
+    );
     orderedFrames = frames.map(toPipelineImage);
   }
 
@@ -143,8 +149,15 @@ export async function loadOutlineForVideo(
     }),
     onProgress: (sections, done, total) => {
       opts.onProgress?.(sections, done, total);
-      // SPEC-12：分块进度总线发布（UI 消费；异常不影响 pipeline——runOutline 已兜）
-      publishProgress({ videoId, stage: 'outline', done, total, label: `字幕分块 ${done}/${total}` });
+      // SPEC-12 二轮：分块进度映射进全局 30~100（异常不影响 pipeline——runOutline 已兜）
+      publishProgress({
+        videoId,
+        stage: 'outline',
+        done,
+        total,
+        label: `字幕分块 ${done}/${total}`,
+        pct: mapSpan(done, total, 30, 100),
+      });
     },
     /**
      * 每块的帧：**按时间落在块内**分配（一块可有多帧，也可没有），并附帧-字幕配对说明。

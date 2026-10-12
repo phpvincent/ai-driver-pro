@@ -3,6 +3,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  mapSpan,
   publishProgress,
   resetProgressBus,
   subscribeProgress,
@@ -76,5 +77,20 @@ describe('progressBus（pub/sub，SPEC-12 A1）', () => {
     resetProgressBus();
     publishProgress({ videoId: 'v', stage: 'scan', done: 1, total: 1 });
     expect(cb).not.toHaveBeenCalled();
+  });
+});
+
+describe('mapSpan（全局百分比区间映射，SPEC-12 二轮）', () => {
+  it('线性映射：子进度 0.5 在 [30,100] → 65', () => {
+    expect(mapSpan(4, 8, 30, 100)).toBe(65);
+  });
+  it('零进度取 from；满进度取 to', () => {
+    expect(mapSpan(0, 8, 5, 20)).toBe(5);
+    expect(mapSpan(8, 8, 5, 20)).toBe(20);
+  });
+  it('非法（total≤0 / done≤0）取 from；超界夹取', () => {
+    expect(mapSpan(3, 0, 5, 20)).toBe(5);
+    expect(mapSpan(-1, 8, 5, 20)).toBe(5);
+    expect(mapSpan(99, 8, 5, 20)).toBe(20);
   });
 });

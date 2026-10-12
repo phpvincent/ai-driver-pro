@@ -21,6 +21,18 @@ export interface GenProgress {
   total: number;
   /** 人读标签（如「第 3/8 块」「抽帧规划」） */
   label?: string;
+  /**
+   * 全局百分比（0~100，SPEC-12 二轮：用户要的是贯穿全程的单调百分比）。
+   * 由发布方把子进度映射进自己拥有的全局区间；缺省时 UI 用 done/total 兜底。
+   */
+  pct?: number;
+}
+
+/** 区间映射（纯函数）：把 done/total 线性映射进 [from, to]（全局百分比区间） */
+export function mapSpan(done: number, total: number, from: number, to: number): number {
+  if (!(total > 0) || !(done > 0)) return from;
+  const ratio = Math.min(1, Math.max(0, done / total));
+  return Math.round((from + (to - from) * ratio) * 10) / 10;
 }
 
 type Listener = (p: GenProgress) => void;

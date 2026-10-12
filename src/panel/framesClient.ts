@@ -18,6 +18,7 @@ import {
 } from '../core/vision/framePlanner';
 import { mergeFrameTargets, requestFramePlan, suggestFrameRange } from '../core/vision/llmFramePlan';
 import { buildScanTargets, interleaveScanOrder, refineTargets } from '../core/vision/pageCluster';
+import { mapSpan, publishProgress } from './progressBus';
 import type { ScannedSample } from '../messages';
 import {
   buildStructuralCandidates,
@@ -34,6 +35,13 @@ export interface FrameRequestOptions {
   targetsMs: number[];
 }
 
+/** 全局百分比区间（SPEC-12 二轮）：调用方声明本段占整体进度的 [from, to] */
+export interface ProgressSpan {
+  videoId: string;
+  from: number;
+  to: number;
+}
+
 export interface FramePlanArgs {
   videoId: string;
   module: 'outline' | 'mindmap' | 'qa';
@@ -42,6 +50,8 @@ export interface FramePlanArgs {
   /** 视频总时长（毫秒） */
   durationMs: number;
   budget: number;
+  /** 扫描进度映射的全局区间（缺省不发布百分比） */
+  span?: ProgressSpan;
   /** 视频元信息（给模型充足的参考上下文） */
   meta?: { title?: string; page?: number };
 }
@@ -69,6 +79,47 @@ export interface FramePlanDiag {
 }
 
 let lastFramePlan: FramePlanDiag | null = null;
+
+// ---------------------------------------------------------------------------
+// 进度拦截（SPEC-12 二轮）：content 广播的原始 scanned/captured 在此映射成
+// 调用方声明的全局百分比区间，统一发布进总线（App 不再重复转发）。
+// ---------------------------------------------------------------------------
+
+/** 当前扫描/采集的全局区间上下文（同时只会有一个在途） */
+let scanSpanCtx: ProgressSpan | null = null;
+let captureSpanCtx: ProgressSpan | null = null;
+let progressListenerReady = false;
+
+function ensureProgressListener(): void {
+  if (progressListenerReady) return;
+  if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
+  progressListenerReady = true;
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    const msg = message as { type?: string; payload?: { videoId?: string; scanned?: number; captured?: number; total?: number } };
+    if (msg?.type === 'video/scan-progress' && scanSpanCtx && msg.payload?.videoId === scanSpanCtx.videoId) {
+      const { scanned = 0, total = 0 } = msg.payload;
+      publishProgress({
+        videoId: scanSpanCtx.videoId,
+        stage: 'scan',
+        done: scanned,
+        total,
+        label: `画面扫描 ${scanned}/${total}`,
+        pct: mapSpan(scanned, total, scanSpanCtx.from, scanSpanCtx.to),
+      });
+    } else if (msg?.type === 'video/capture-progress' && captureSpanCtx && msg.payload?.videoId === captureSpanCtx.videoId) {
+      const { captured = 0, total = 0 } = msg.payload;
+      publishProgress({
+        videoId: captureSpanCtx.videoId,
+        stage: 'capture' as 'scan',
+        done: captured,
+        total,
+        label: `抽帧 ${captured}/${total}`,
+        pct: mapSpan(captured, total, captureSpanCtx.from, captureSpanCtx.to),
+      });
+    }
+  });
+}
+ensureProgressListener();
 
 /** 读取最近一次抽帧规划诊断（供埋点与验证期报告） */
 export function getLastFramePlan(): FramePlanDiag | null {
@@ -117,7 +168,7 @@ export async function planFrames(args: FramePlanArgs): Promise<number[]> {
   // 与 LLM 规划并行启动：网络与 seek 互不抢占，扫描延迟藏进模型等待时间。
   const scanPromise =
     model?.apiKey && budget > 0 && candidates.length > 0
-      ? scanAroundCandidates(args.videoId, candidates).catch(() => [] as ScannedSample[])
+      ? scanAroundCandidates(args.videoId, candidates, args.span).catch(() => [] as ScannedSample[])
       : Promise.resolve([] as ScannedSample[]);
 
   // ① 模型规划（可选）
@@ -249,6 +300,7 @@ async function scanBudgetMs(): Promise<number> {
 async function scanAroundCandidates(
   videoId: string,
   candidates: FrameCandidate[],
+  span?: ProgressSpan,
 ): Promise<ScannedSample[]> {
   const points = buildScanTargets(
     candidates.map((c) => c.tMs),
@@ -259,6 +311,7 @@ async function scanAroundCandidates(
     },
   );
   if (points.length === 0) return [];
+  scanSpanCtx = span ?? null;
   try {
     const response = (await chrome.runtime.sendMessage({
       type: MSG.SCAN_FRAMES,
@@ -272,6 +325,8 @@ async function scanAroundCandidates(
     return Array.isArray(response?.samples) ? (response.samples as ScannedSample[]) : [];
   } catch {
     return [];
+  } finally {
+    scanSpanCtx = null;
   }
 }
 
@@ -284,9 +339,13 @@ function refineWithScan(targetsMs: number[], samples: ScannedSample[]): number[]
   });
 }
 
-/** 向 content 请求关键帧；失败返回空数组 */
-export async function requestFrames(args: FrameRequestOptions): Promise<CapturedFrame[]> {
+/** 向 content 请求关键帧；失败返回空数组。span = 采集进度映射的全局区间 */
+export async function requestFrames(
+  args: FrameRequestOptions,
+  span?: ProgressSpan,
+): Promise<CapturedFrame[]> {
   if (args.targetsMs.length === 0) return [];
+  captureSpanCtx = span ?? null;
   try {
     const response = (await chrome.runtime.sendMessage({
       type: MSG.CAPTURE_FRAMES,
@@ -304,6 +363,8 @@ export async function requestFrames(args: FrameRequestOptions): Promise<Captured
     });
   } catch {
     return [];
+  } finally {
+    captureSpanCtx = null;
   }
 }
 

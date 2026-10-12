@@ -9,13 +9,18 @@ export function GenerationProgress({ videoId }: { videoId: string }) {
   const [p, setP] = useState<GenProgress | null>(null);
   useEffect(() => subscribeProgressForVideo(videoId, setP), [videoId]);
   if (!p || !(p.total > 0) || !(p.done > 0)) return null;
-  const pct = Math.min(100, Math.round((p.done / p.total) * 100));
+  // 全局百分比优先（SPEC-12 二轮）；缺省回落 done/total
+  const pct =
+    typeof p.pct === 'number' && p.pct >= 0
+      ? Math.min(100, Math.round(p.pct))
+      : Math.min(100, Math.round((p.done / p.total) * 100));
+  const label = p.label ?? `${p.done}/${p.total}`;
   return (
     <div className="gen-progress" role="status" aria-label="生成进度">
       <div className="gen-progress-bar">
         <div className="gen-progress-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span className="gen-progress-label">{p.label ?? `${p.done}/${p.total}`}</span>
+      <span className="gen-progress-label">{label} · {pct}%</span>
     </div>
   );
 }

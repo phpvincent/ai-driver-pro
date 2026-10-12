@@ -90,8 +90,9 @@ export function routeBackgroundMessage(msg: RuntimeMessage, ctx: RouteContext): 
       }
       return [{ kind: 'captureFrames', tabId, message: msg }];
     }
-    case MSG.SCAN_PROGRESS: {
-      // 扫描进度广播（SPEC-12）：content → panel（与 VIDEO_CHANGED 同通道）
+    case MSG.SCAN_PROGRESS:
+    case MSG.CAPTURE_PROGRESS: {
+      // 进度广播（SPEC-12）：content → panel（与 VIDEO_CHANGED 同通道）
       return [{ kind: 'forwardToPanel', message: msg }];
     }
     case MSG.SCAN_FRAMES: {

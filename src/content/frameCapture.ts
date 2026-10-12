@@ -246,7 +246,11 @@ export function isCaptureInProgress(): boolean {
 export async function captureFrames(
   video: HTMLVideoElementLike,
   targetsMs: number[],
-  opts: CaptureRuntimeOptions & { maxFrames?: number } = {},
+  opts: CaptureRuntimeOptions & {
+    maxFrames?: number;
+    /** 采集进度（每 2 帧节流；SPEC-12 二轮）：done/total */
+    onProgress?: (done: number, total: number) => void;
+  } = {},
 ): Promise<CapturedFrame[]> {
   const maxFrames = opts.maxFrames ?? DEFAULT_MAX_FRAMES;
   const targets = Array.isArray(targetsMs) ? targetsMs.slice(0, Math.max(0, maxFrames)) : [];
@@ -264,6 +268,13 @@ export async function captureFrames(
         frames.push(await captureFrameAt(video, targetMs, opts));
       } catch {
         // 单帧失败（seek 失败 / canvas 被污染 / 编码失败）跳过该帧
+      }
+      if (opts.onProgress && (frames.length % 2 === 0 || frames.length === targets.length)) {
+        try {
+          opts.onProgress(frames.length, targets.length);
+        } catch {
+          /* 进度非关键路径 */
+        }
       }
     }
   } finally {
@@ -313,6 +324,17 @@ export function registerFrameCaptureHandler(
           maxSize: payload?.maxSize,
           // 规划多少就抽多少（受 DEFAULT_MAX_FRAMES 兜底上限约束）
           maxFrames: wanted.length,
+          // 采集进度广播（SPEC-12 二轮）：失败静默（非关键路径）
+          onProgress: (done, total) => {
+            try {
+              void chrome.runtime.sendMessage({
+                type: MSG.CAPTURE_PROGRESS,
+                payload: { videoId: payload.videoId, captured: done, total },
+              });
+            } catch {
+              /* 广播失败不影响采集 */
+            }
+          },
         });
         sendResponse({ frames });
       } catch {
