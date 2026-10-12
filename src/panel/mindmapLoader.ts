@@ -16,6 +16,7 @@ import { DB } from '../config';
 import { MSG } from '../messages';
 import { getConceptMapSystemPrompt, PROMPT_VERSIONS } from '../prompts';
 import { frameBudgetFor, isDenseSections } from '../core/vision/framePlanner';
+import { publishProgress } from './progressBus';
 import { planFrames, requestFrames, toPipelineImage } from './framesClient';
 import { captionFrame } from '../core/vision/structuralCandidates';
 import { resolveModel, visionActiveFor } from './settings/modelForm';
@@ -96,6 +97,11 @@ export async function generateConceptMap(
   // 抽帧（可选）：预算随时长增长（分段递减）、每章至少首尾两帧，上限 FRAME_PLAN.mindmap.hardMax
   const settings = (await fetchSettings()) as Settings;
   const useVision = visionActiveFor({ settings, module: 'mindmap' });
+  // SPEC-12 二轮：全局百分比（扫描 5~60、采集 60~75、模型 75~100，本 loader 拥有整条时间轴）
+  const progress = (pct: number, label: string): void => {
+    publishProgress({ videoId, stage: 'mindmap', done: 1, total: 100, pct, label });
+  };
+  progress(2, '读取字幕与设置');
   // 单模型口径：图片与文本一起发给同一个模型
   let images: ReturnType<typeof toPipelineImage>[] = [];
   if (useVision) {
@@ -103,6 +109,7 @@ export async function generateConceptMap(
     const cues = rec?.cues ?? [];
     // 模型优先（判断如何抽最能还原完整性），失败/未配置则回退确定性公式
     const durationMs = rec?.meta?.durationMs ?? cues[cues.length - 1]?.endMs ?? 0;
+    progress(5, '抽帧规划（扫描画面）');
     const targets = await planFrames({
       videoId,
       module: 'mindmap',
@@ -111,8 +118,12 @@ export async function generateConceptMap(
       durationMs,
       budget: frameBudgetFor('mindmap', durationMs, isDenseSections(sections, durationMs), sections.length),
       meta: { title: videoTitle || rec?.meta?.title, page: rec?.meta?.page },
+      span: { videoId, from: 5, to: 60 },
     });
-    const frames = (await requestFrames({ videoId, targetsMs: targets })).map(toPipelineImage);
+    const frames = (
+      await requestFrames({ videoId, targetsMs: targets }, { videoId, from: 60, to: 75 })
+    ).map(toPipelineImage);
+    progress(75, '模型生成中');
     // 帧-字幕配对：每张图前紧贴"第几章 · 章节开头/知识点/结尾 · 此刻字幕"
     images = frames.map((f, i) => ({
       ...f,
@@ -140,6 +151,7 @@ export async function generateConceptMap(
     }).then((res) => ({ content: res.content }));
   };
 
+  if (!useVision) progress(30, '模型生成中（未开抽帧）');
   const { stages, flows } = await buildConceptMap({
     sections,
     videoTitle,

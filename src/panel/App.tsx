@@ -659,6 +659,7 @@ export function App() {
             )}
             {effectiveTab === 'mindmap' && (
               <MindmapTab
+        videoId={video?.videoId}
                 sections={sections}
                 videoTitle={video?.title ?? ''}
                 positionMs={playback?.positionMs ?? 0}

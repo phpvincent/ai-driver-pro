@@ -26,9 +26,13 @@ import { buildTermIndexMap } from '../core/pipeline/conceptMap';
 import { formatTimestamp } from './SubtitleTab';
 import { ModelPicker } from './ModelPicker';
 import { GenerationBanner } from './GenerationBanner';
+import { GenerationProgress } from './GenerationProgress';
+import { CanvasPanel } from './CanvasViews';
 import './mindmap.css';
 
 export interface MindmapTabProps {
+  /** 当前视频 id（SPEC-12 进度条按它过滤总线事件） */
+  videoId?: string;
   /** 单测/深链注入的初始视图（默认流程图） */
   initialView?: 'flow' | 'concept' | 'chrono';
   /** 大纲章节（空数组 = 未生成，显示引导） */
@@ -377,7 +381,7 @@ export function ChronoView({
 
 /** 概念图标签与引导文案（导出供单测断言） */
 export const CONCEPT_VIEW_LABEL = '概念图';
-export const CHRONO_VIEW_LABEL = '时间轴';
+export const CHRONO_VIEW_LABEL = '思维导图';
 export const CONCEPT_GENERATE_TEXT = '生成知识图';
 export const CONCEPT_GENERATING_TEXT = '正在生成概念知识图…';
 export const CONCEPT_MODEL_HINT = '需先配置模型：到 DeepSeek / 阿里云百炼创建 API Key，在设置页粘贴并测试连接（只需一次；右上角「？」有完整帮助）';
@@ -991,6 +995,7 @@ function ConceptSkeleton() {
  */
 export function MindmapTab(props: MindmapTabProps) {
   const {
+    videoId,
     sections = [],
     videoTitle = '',
     positionMs = 0,
@@ -1028,11 +1033,15 @@ export function MindmapTab(props: MindmapTabProps) {
   // model='term-index' 约定兜底（types.ts 的 ConceptMapData 无字段）
   const mapDegraded = degraded || (conceptMap != null && isTermIndexData(conceptMap));
 
-  const showEmptyGuide = (view === 'concept' || view === 'flow') && sections.length === 0 && !conceptMap;
+  const showEmptyGuide =
+    ((view === 'concept' && !conceptMap) || view === 'flow' || view === 'chrono') && sections.length === 0;
 
   return (
     <div className="mindmap-tab">
       <div className="mm-view-switch" role="tablist">
+        {/* 2026-10-12 用户决策：概念图 tab 移除（AI 自由画布取代）；concept 视图
+            渲染分支保留仅为 initialView 深链/单测路径，UI 不可达 */}
+
         <button
           type="button"
           className={`mm-view-btn${view === 'flow' ? ' active' : ''}`}
@@ -1042,24 +1051,11 @@ export function MindmapTab(props: MindmapTabProps) {
         </button>
         <button
           type="button"
-          className={`mm-view-btn${view === 'concept' ? ' active' : ''}`}
-          onClick={() => setView('concept')}
-        >
-          {CONCEPT_VIEW_LABEL}
-        </button>
-        <button
-          type="button"
           className={`mm-view-btn${view === 'chrono' ? ' active' : ''}`}
           onClick={() => setView('chrono')}
         >
           {CHRONO_VIEW_LABEL}
         </button>
-        {/* 重新生成入口：有缓存时也允许重抽（用户要求） */}
-        {generateConceptMap && sections.length > 0 && (
-          <button type="button" className="btn" onClick={handleGenerate} disabled={generating}>
-            {generating ? '生成中…' : conceptMap ? '重新生成' : CONCEPT_GENERATE_TEXT}
-          </button>
-        )}
         {/* 模型选择（margin-left:auto 靠右；select 不参与 tablist 语义） */}
         <ModelPicker onOpenSettings={onOpenSettings} />
         <GenerationBanner module="mindmap" />
@@ -1069,28 +1065,15 @@ export function MindmapTab(props: MindmapTabProps) {
 
       {view === 'flow' && !showEmptyGuide && (
         <div className="mm-view-body">
-          {conceptMap ? (
-            <ConceptFlowView
-              stages={conceptMap.stages}
-              flows={conceptMap.flows}
-              onGenerateFlows={generateFlows}
-              activeLabels={(() => {
-                // 与列表视图同一跟随口径（matchConcepts），此处内联避免提升 hook
-                const labels = matchConcepts(sections, positionMs, conceptMap.stages);
-                return new Set(labels.map((l) => l.toLowerCase()));
-              })()}
-              onRequestSeek={onRequestSeek}
-              degraded={mapDegraded}
-              degradedText={degradedText ?? CONCEPT_DEGRADED_TEXT}
-              onRetry={generateConceptMap ? handleGenerate : undefined}
-            />
-          ) : generating ? (
-            <ConceptSkeleton />
-          ) : (
-            <div className="tab-placeholder cm-gate">
-              <p>基于大纲重组为逻辑流程（概念节点 + 关系边）</p>
-            </div>
-          )}
+          {/* SPEC-13：AI 自由流程图（mermaid），不再强制节点跳播 */}
+          <CanvasPanel
+            kind="flowchart"
+            videoId={videoId}
+            sections={sections}
+            videoTitle={videoTitle}
+            modelReady={modelReady}
+            onOpenSettings={onOpenSettings}
+          />
         </div>
       )}
 
@@ -1107,7 +1090,12 @@ export function MindmapTab(props: MindmapTabProps) {
               onRetry={generateConceptMap ? handleGenerate : undefined}
             />
           ) : generating ? (
-            <ConceptSkeleton />
+            <>
+              <div style={{ padding: '0 16px' }}>
+                {videoId && <GenerationProgress videoId={videoId} />}
+              </div>
+              <ConceptSkeleton />
+            </>
           ) : generateConceptMap ? (
             modelReady ? (
               <div className="tab-placeholder cm-gate">
@@ -1147,7 +1135,15 @@ export function MindmapTab(props: MindmapTabProps) {
 
       {view === 'chrono' && (
         <div className="mm-view-body">
-          <ChronoView sections={sections} positionMs={positionMs} onRequestSeek={onRequestSeek} />
+          {/* SPEC-13：AI 层级思维导图（按知识逻辑分组，层级由内容决定） */}
+          <CanvasPanel
+            kind="mindmap"
+            videoId={videoId}
+            sections={sections}
+            videoTitle={videoTitle}
+            modelReady={modelReady}
+            onOpenSettings={onOpenSettings}
+          />
         </div>
       )}
     </div>

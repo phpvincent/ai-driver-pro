@@ -7,11 +7,14 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "test": "vitest run --passWithNoTests",
-    "verify": "tsc --noEmit && vite build"
+    "check:redlines": "node scripts/check-redlines.mjs",
+    "check:prompts": "node scripts/check-prompts.mjs",
+    "verify": "tsc --noEmit && vitest run && node scripts/check-redlines.mjs && vite build"
   },
   "dependencies": {
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
+    "mermaid": "^11.17.2",
     "react": "18.3",
     "react-dom": "18.3",
     "zod": "^4.6.5"

@@ -24,6 +24,12 @@ export const MSG = {
   RESUME: 'player/resume',
   /** panel -> background -> content：抽取关键帧（视觉问答，返回 JPEG base64 数组） */
   CAPTURE_FRAMES: 'video/capture-frames',
+  /** 页聚类精修（SPEC-11）：轻量扫描，只回 dHash+清晰度样本 */
+  SCAN_FRAMES: 'video/scan-frames',
+  /** 扫描进度广播（SPEC-12）：content → background → panel */
+  SCAN_PROGRESS: 'video/scan-progress',
+  /** 采集进度广播（SPEC-12 二轮）：content → background → panel */
+  CAPTURE_PROGRESS: 'video/capture-progress',
   /** panel -> background：拉取当前 tab 的视频信息（panel 打开时） */
   CURRENT_VIDEO_GET: 'video/current-get',
   /** panel <-> background：设置读写 */
@@ -82,6 +88,23 @@ export interface CapturedFrame {
   thumbBase64?: string;
 }
 
+/** 轻量扫描样本（SPEC-11）：不含图像数据，只携带聚类所需的哈希与清晰度 */
+export interface ScannedSample {
+  tMs: number;
+  /** dHash（16 位十六进制）；空串 = 该点计算失败 */
+  dhash: string;
+  /** 清晰度分（拉普拉斯方差，越高越清晰；0 = 未知） */
+  sharpness: number;
+}
+
+export interface ScanFramesPayload {
+  videoId: VideoId;
+  /** 扫描时间点（毫秒） */
+  pointsMs: number[];
+  /** 扫描总时间预算（毫秒），超时返回已扫部分 */
+  budgetMs?: number;
+}
+
 export interface VideoIdPayload {
   videoId: VideoId;
 }
@@ -94,6 +117,9 @@ export type RuntimeMessage =
   | { type: typeof MSG.PLAYBACK_CHANGED; payload: PlaybackPayload }
   | { type: typeof MSG.SEEK; payload: SeekPayload }
   | { type: typeof MSG.CAPTURE_FRAMES; payload: CaptureFramesPayload }
+  | { type: typeof MSG.SCAN_FRAMES; payload: ScanFramesPayload }
+  | { type: typeof MSG.SCAN_PROGRESS; payload: { videoId: VideoId; scanned: number; total: number } }
+  | { type: typeof MSG.CAPTURE_PROGRESS; payload: { videoId: VideoId; captured: number; total: number } }
   | { type: typeof MSG.PAUSE; payload: VideoIdPayload }
   | { type: typeof MSG.RESUME; payload: VideoIdPayload }
   | { type: typeof MSG.CURRENT_VIDEO_GET }

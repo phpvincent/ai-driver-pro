@@ -325,6 +325,11 @@ export interface Settings {
   visionEnabled?: boolean;
   /** 各模块是否结合画面（默认随全局开关；未配置视为开启） */
   visionModules?: { outline?: boolean; mindmap?: boolean; qa?: boolean };
+  /**
+   * 抽帧精修扫描预算（SPEC-12）：秒。轻量扫描（dHash+清晰度）的总时间预算，
+   * 交错序保证预算耗尽时已扫部分均匀覆盖全程。缺省 25；UI 限 5~120。
+   */
+  frameScan?: { budgetSec?: number };
   /** @deprecated 公开资料检索已内置 DuckDuckGo，无需配置；保留仅为兼容旧设置数据 */
   webSearch?: { endpoint?: string; apiKey?: string; engine?: string };
   /** @deprecated 检索已内置且默认开启 */
