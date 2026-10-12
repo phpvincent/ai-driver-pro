@@ -124,6 +124,23 @@ export const BOCHA = {
   packageUrl: 'https://open.bochaai.com/package/purchase',
 } as const;
 
+/**
+ * DeepSeek Responses 内置搜索（SPEC-15 七轮，可选第四路）：仅当用户模型为
+ * deepseek-v4-flash 且走 api.deepseek.com 时参与并行检索。
+ * 端点为 Responses 格式（/responses），与 chat/completions 平行；
+ * 内置搜索按 token 计费（实测一次注入 7K~17K tokens ≈ 0.2~1 分），
+ * 结果是"黑盒注入"——只能拿到 open_page 的 URL 与最终回答文本，无标题/摘要列表。
+ */
+export const DEEPSEEK_SEARCH = {
+  /** Responses API 端点（baseUrl + 固定路径） */
+  responsesPath: '/responses',
+  /** 唯一支持内置搜索的模型（v4-pro 官方暂未开放该能力） */
+  model: 'deepseek-v4-flash',
+  requestTimeoutMs: 15_000,
+  /** open_page URL 最多取几条进来源区 */
+  maxPages: 4,
+} as const;
+
 export const WIKIPEDIA = {
   /** MediaWiki Action API（中文站，免 Key） */
   endpoint: 'https://zh.wikipedia.org/w/api.php',

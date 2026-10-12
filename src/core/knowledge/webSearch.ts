@@ -199,7 +199,7 @@ export function buildWebContext(
 // 三级瀑布由 loader 层编排：Bocha → Wikipedia → DuckDuckGo（本文件既有）
 // ---------------------------------------------------------------------------
 
-import { BOCHA, WIKIPEDIA } from '../../config';
+import { BOCHA, DEEPSEEK_SEARCH, WIKIPEDIA } from '../../config';
 
 /**
  * 博查响应解析（纯函数，导出供单测）：{code,data:{webPages:{value[]}}}。
@@ -318,6 +318,121 @@ export async function searchWikipedia(
     if (!res || res.ok !== true) return [];
     const json: unknown = await res.json();
     return parseWikipediaResults(json, maxResults);
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DeepSeek Responses 内置搜索（SPEC-15 七轮，可选第四路）
+// 服务端执行搜索并注入模型上下文；客户端只能拿到 open_page 的 URL 与
+// 最终回答文本（黑盒注入，无标题/摘要列表）。片段=模型打开的页面（标题回落 URL），
+// 外加一条"模型基于搜索的综合回答"片段，让来源区至少有可读内容。
+// ---------------------------------------------------------------------------
+
+/**
+ * 判断当前模型是否具备 DeepSeek 内置搜索（纯函数，导出供单测与 loader 路由）：
+ * 模型标识精确匹配 config 常量（勿用 includes——deepseek-v4-flash-search 之类
+ * 不存在的变体不该被放行）。
+ */
+export function supportsDsWebSearch(model: string): boolean {
+  return (model ?? '').trim() === DEEPSEEK_SEARCH.model;
+}
+
+/**
+ * Responses 输出解析（纯函数，导出供单测）：
+ * - output[].type === 'web_search_call' 且 action.type === 'open_page' → 取 action.url
+ * - output[].type === 'message' → 拼 output_text 作为综合回答片段
+ * URL 去重（含剥 ws_call_id 追踪尾巴）后截 maxPages 条。
+ */
+export function parseDeepSeekResponsesOutput(
+  json: unknown,
+  maxPages: number,
+): { pages: WebSnippet[]; answerText: string } {
+  const root = (json ?? {}) as { output?: unknown; status?: unknown };
+  const list = Array.isArray(root.output) ? root.output : [];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  let answerText = '';
+  for (const item of list) {
+    const it = (item ?? {}) as {
+      type?: unknown;
+      status?: unknown;
+      action?: { type?: unknown; url?: unknown };
+      content?: Array<{ type?: unknown; text?: unknown }>;
+    };
+    if (it.type === 'web_search_call' && it.status === 'completed') {
+      const action = it.action ?? {};
+      if (action.type === 'open_page' && typeof action.url === 'string') {
+        // 剥服务端追踪尾巴（#ws_call_id=… / ?ws_call_id=…）
+        const url = action.url
+          .replace(/[#&?]ws_call_id=[^#&]*/g, '')
+          .replace(/[#&?]$/, '')
+          .trim();
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          urls.push(url);
+        }
+      }
+    } else if (it.type === 'message' && answerText === '') {
+      const parts = Array.isArray(it.content) ? it.content : [];
+      const text = parts
+        .filter((p) => p?.type === 'output_text' && typeof p.text === 'string')
+        .map((p) => p.text as string)
+        .join('\n')
+        .trim();
+      if (text) answerText = text;
+    }
+  }
+  const pages: WebSnippet[] = urls.slice(0, maxPages).map((url) => ({
+    title: url,
+    url,
+    snippet: 'DeepSeek 联网搜索打开的页面（服务端搜索不返回标题/摘要）',
+  }));
+  return { pages, answerText };
+}
+
+/**
+ * DeepSeek Responses 内置搜索（SPEC-15 七轮）：POST {baseUrl}/responses，
+ * tools=[{type:'web_search'}]，一次请求服务端完成 搜索→注入→回答。
+ * 任何失败（非 v4-flash 由调用方前置拦截 / 网络 / 超时 / 解析）返回空数组。
+ * 注意：该调用按 token 计费（搜索注入 7K~17K tokens），由调用方决定是否参与。
+ */
+export async function searchDeepSeekResponses(
+  query: string,
+  apiKey: string,
+  baseUrl: string,
+  fetchFn: SearchFetch,
+  opts: { timeoutMs?: number } = {},
+): Promise<WebSnippet[]> {
+  const key = apiKey.trim();
+  const q = (query ?? '').trim();
+  if (!key || !q) return [];
+  const timeoutMs = opts.timeoutMs ?? DEEPSEEK_SEARCH.requestTimeoutMs;
+  const url = `${(baseUrl ?? '').replace(/\/+$/, '')}${DEEPSEEK_SEARCH.responsesPath}`;
+  try {
+    const res = await fetchWithTimeout(fetchFn, url, timeoutMs, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: DEEPSEEK_SEARCH.model,
+        input: `请联网搜索并简要回答：${q}（200 字以内，列出你打开过的最有价值的页面）`,
+        tools: [{ type: 'web_search' }],
+        stream: false,
+      }),
+    });
+    if (!res || res.ok !== true) return [];
+    const json: unknown = await res.json();
+    const { pages, answerText } = parseDeepSeekResponsesOutput(json, DEEPSEEK_SEARCH.maxPages);
+    const out = [...pages];
+    if (answerText.length > 0) {
+      out.push({
+        title: 'DeepSeek 联网搜索综合回答',
+        url,
+        snippet: answerText.slice(0, 400),
+      });
+    }
+    return out;
   } catch {
     return [];
   }
