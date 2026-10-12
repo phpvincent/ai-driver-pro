@@ -26,9 +26,12 @@ import { buildTermIndexMap } from '../core/pipeline/conceptMap';
 import { formatTimestamp } from './SubtitleTab';
 import { ModelPicker } from './ModelPicker';
 import { GenerationBanner } from './GenerationBanner';
+import { GenerationProgress } from './GenerationProgress';
 import './mindmap.css';
 
 export interface MindmapTabProps {
+  /** 当前视频 id（SPEC-12 进度条按它过滤总线事件） */
+  videoId?: string;
   /** 单测/深链注入的初始视图（默认流程图） */
   initialView?: 'flow' | 'concept' | 'chrono';
   /** 大纲章节（空数组 = 未生成，显示引导） */
@@ -991,6 +994,7 @@ function ConceptSkeleton() {
  */
 export function MindmapTab(props: MindmapTabProps) {
   const {
+    videoId,
     sections = [],
     videoTitle = '',
     positionMs = 0,
@@ -1085,7 +1089,12 @@ export function MindmapTab(props: MindmapTabProps) {
               onRetry={generateConceptMap ? handleGenerate : undefined}
             />
           ) : generating ? (
-            <ConceptSkeleton />
+            <>
+              <div style={{ padding: '0 16px' }}>
+                {videoId && <GenerationProgress videoId={videoId} />}
+              </div>
+              <ConceptSkeleton />
+            </>
           ) : (
             <div className="tab-placeholder cm-gate">
               <p>基于大纲重组为逻辑流程（概念节点 + 关系边）</p>
@@ -1107,7 +1116,12 @@ export function MindmapTab(props: MindmapTabProps) {
               onRetry={generateConceptMap ? handleGenerate : undefined}
             />
           ) : generating ? (
-            <ConceptSkeleton />
+            <>
+              <div style={{ padding: '0 16px' }}>
+                {videoId && <GenerationProgress videoId={videoId} />}
+              </div>
+              <ConceptSkeleton />
+            </>
           ) : generateConceptMap ? (
             modelReady ? (
               <div className="tab-placeholder cm-gate">

@@ -161,6 +161,8 @@ export function SettingsPage({
   const [disableThinking, setDisableThinking] = useState(true);
   /** 抽帧开关（默认关闭：额外延迟与 token 消耗，且需模型支持图像输入） */
   const [visionEnabled, setVisionEnabled] = useState(false);
+  /** 扫描预算（秒，SPEC-12）：字符串草稿（输入中间态可暂时非法），保存时夹取 5~120 */
+  const [scanBudgetSec, setScanBudgetSec] = useState('25');
   const [visionModules, setVisionModules] = useState<Record<VisionModule, boolean>>(INITIAL_VISION_MODULES);
   const [visionSwitchFeedback, setVisionSwitchFeedback] = useState<Feedback>(null);
   const [visionSwitchSaving, setVisionSwitchSaving] = useState(false);
@@ -273,6 +275,7 @@ export function SettingsPage({
         setSupportsVision(stored.model?.supportsVision ?? stored.modelSupportsVision === true);
         setDisableThinking(stored.disableThinking !== false);
         setVisionEnabled(stored.visionEnabled === true);
+        setScanBudgetSec(String(stored.frameScan?.budgetSec ?? 25));
         setVisionModules({
           outline: stored.visionModules?.outline !== false,
           mindmap: stored.visionModules?.mindmap !== false,
@@ -444,7 +447,13 @@ export function SettingsPage({
   const handleSaveVisionSwitch = () => {
     setVisionSwitchSaving(true);
     setVisionSwitchFeedback(null);
-    savePatch({ visionEnabled, visionModules: { ...visionModules } })
+    const sec = Number(scanBudgetSec);
+    const budgetSec = Number.isFinite(sec) ? Math.min(120, Math.max(5, Math.round(sec))) : 25;
+    savePatch({
+      visionEnabled,
+      visionModules: { ...visionModules },
+      frameScan: { budgetSec },
+    })
       .then((ok) => {
         setVisionSwitchFeedback(
           ok ? { kind: 'ok', text: '已保存' } : { kind: 'error', text: '保存失败：background 未确认' },
@@ -730,6 +739,24 @@ export function SettingsPage({
             }}
           />
           <span>让模型结合视频画面理解（抽帧）</span>
+        </label>
+        <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <span style={{ flexShrink: 0 }}>画面扫描预算</span>
+          <input
+            type="number"
+            min={5}
+            max={120}
+            step={5}
+            value={scanBudgetSec}
+            style={{ width: 72 }}
+            onChange={(e) => {
+              setScanBudgetSec(e.target.value);
+              setVisionSwitchFeedback(null);
+            }}
+          />
+          <span style={{ color: 'var(--text-tertiary, #86909c)', fontSize: 12 }}>
+            秒（5~120）：抽帧前会轻量扫描画面挑最清晰的时刻；更长 = 精修更满、等待稍久
+          </span>
         </label>
         {(Object.keys(VISION_MODULE_LABELS) as VisionModule[]).map((module) => (
           <label

@@ -377,7 +377,13 @@ export type DescribeScanPoint = (video: HTMLVideoElementLike) => { dhash: string
 export async function scanFrames(
   video: HTMLVideoElementLike,
   pointsMs: readonly number[],
-  opts: { budgetMs?: number; timeoutMs?: number; describeScan?: DescribeScanPoint } = {},
+  opts: {
+    budgetMs?: number;
+    timeoutMs?: number;
+    describeScan?: DescribeScanPoint;
+    /** 进度回调（每 5 点节流；SPEC-12）：done/total 与最终 samples 无耦合 */
+    onProgress?: (done: number, total: number) => void;
+  } = {},
 ): Promise<ScannedSample[]> {
   const budgetMs = opts.budgetMs ?? 25_000;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -397,6 +403,14 @@ export async function scanFrames(
       const describe = opts.describeScan ?? describeScanPoint;
       const { dhash, sharpness } = describe(video);
       samples.push({ tMs, dhash, sharpness });
+      // 进度节流：每 5 点报一次 + 最后一点必报（SPEC-12）
+      if (opts.onProgress && (samples.length % 5 === 0 || samples.length === points.length)) {
+        try {
+          opts.onProgress(samples.length, points.length);
+        } catch {
+          /* 进度非关键路径 */
+        }
+      }
     }
   } finally {
     captureInProgress = false;
@@ -426,7 +440,20 @@ export function registerScanFramesHandler(
       }
       try {
         const points = Array.isArray(payload?.pointsMs) ? payload.pointsMs : [];
-        const samples = await scanFrames(video, points, { budgetMs: payload?.budgetMs });
+        const samples = await scanFrames(video, points, {
+          budgetMs: payload?.budgetMs,
+          // 进度广播（SPEC-12）：content → background → panel；失败静默（非关键路径）
+          onProgress: (done, total) => {
+            try {
+              void chrome.runtime.sendMessage({
+                type: MSG.SCAN_PROGRESS,
+                payload: { videoId: payload.videoId, scanned: done, total },
+              });
+            } catch {
+              /* 广播失败不影响扫描 */
+            }
+          },
+        });
         sendResponse({ samples });
       } catch {
         sendResponse({ samples: [] });

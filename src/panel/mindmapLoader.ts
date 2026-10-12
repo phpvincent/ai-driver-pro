@@ -16,6 +16,7 @@ import { DB } from '../config';
 import { MSG } from '../messages';
 import { getConceptMapSystemPrompt, PROMPT_VERSIONS } from '../prompts';
 import { frameBudgetFor, isDenseSections } from '../core/vision/framePlanner';
+import { publishProgress } from './progressBus';
 import { planFrames, requestFrames, toPipelineImage } from './framesClient';
 import { captionFrame } from '../core/vision/structuralCandidates';
 import { resolveModel, visionActiveFor } from './settings/modelForm';
@@ -96,6 +97,11 @@ export async function generateConceptMap(
   // 抽帧（可选）：预算随时长增长（分段递减）、每章至少首尾两帧，上限 FRAME_PLAN.mindmap.hardMax
   const settings = (await fetchSettings()) as Settings;
   const useVision = visionActiveFor({ settings, module: 'mindmap' });
+  // SPEC-12：阶段进度（扫描的细粒度百分比由 content 广播、App 转发，见 progressBus）
+  const progress = (done: number, total: number, label: string): void => {
+    publishProgress({ videoId, stage: 'mindmap', done, total, label });
+  };
+  progress(1, 4, '读取字幕与设置');
   // 单模型口径：图片与文本一起发给同一个模型
   let images: ReturnType<typeof toPipelineImage>[] = [];
   if (useVision) {
@@ -103,6 +109,7 @@ export async function generateConceptMap(
     const cues = rec?.cues ?? [];
     // 模型优先（判断如何抽最能还原完整性），失败/未配置则回退确定性公式
     const durationMs = rec?.meta?.durationMs ?? cues[cues.length - 1]?.endMs ?? 0;
+    progress(2, 4, '抽帧规划（扫描画面）');
     const targets = await planFrames({
       videoId,
       module: 'mindmap',
@@ -113,6 +120,7 @@ export async function generateConceptMap(
       meta: { title: videoTitle || rec?.meta?.title, page: rec?.meta?.page },
     });
     const frames = (await requestFrames({ videoId, targetsMs: targets })).map(toPipelineImage);
+    progress(3, 4, `已选 ${frames.length} 帧，生成中`);
     // 帧-字幕配对：每张图前紧贴"第几章 · 章节开头/知识点/结尾 · 此刻字幕"
     images = frames.map((f, i) => ({
       ...f,
@@ -140,6 +148,7 @@ export async function generateConceptMap(
     }).then((res) => ({ content: res.content }));
   };
 
+  progress(useVision ? 4 : 2, useVision ? 4 : 2, '模型生成中');
   const { stages, flows } = await buildConceptMap({
     sections,
     videoTitle,

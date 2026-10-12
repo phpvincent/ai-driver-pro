@@ -6,6 +6,7 @@
  * 红线 2 消费侧：UI 跳播只用吸附后的 section.startMs。
  */
 import { chatCompletion } from '../core/harness/modelClient';
+import { publishProgress } from './progressBus';
 import {
   buildOutlinePrompts,
   buildOutlineRegeneratePrompts,
@@ -140,7 +141,11 @@ export async function loadOutlineForVideo(
       systemPrompt: getOutlineSystemPrompt(),
       userPrompt: buildOutlinePrompts(chunk).userPrompt,
     }),
-    onProgress: opts.onProgress,
+    onProgress: (sections, done, total) => {
+      opts.onProgress?.(sections, done, total);
+      // SPEC-12：分块进度总线发布（UI 消费；异常不影响 pipeline——runOutline 已兜）
+      publishProgress({ videoId, stage: 'outline', done, total, label: `字幕分块 ${done}/${total}` });
+    },
     /**
      * 每块的帧：**按时间落在块内**分配（一块可有多帧，也可没有），并附帧-字幕配对说明。
      * 历史：①按 targetMs 精确相等匹配 → 几乎全落空；②按下标顺序分配 → 第 i 帧未必属于第 i 块，

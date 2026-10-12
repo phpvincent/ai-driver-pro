@@ -478,6 +478,35 @@ describe('scanFrames（轻量扫描 / 预算截断 / 播放状态恢复）', () 
     expect(out).toEqual([]);
   });
 
+  it('进度节流：每 5 点报一次且最后一点必报（SPEC-12 A2）', async () => {
+    const v = new FakeVideo();
+    const events: Array<{ done: number; total: number }> = [];
+    // 12 个点 → 节流应报 5/10/12（5 的倍数 + 末点）
+    const points = Array.from({ length: 12 }, (_, i) => (i + 1) * 1000);
+    await scanFrames(v, points, {
+      budgetMs: 60_000,
+      describeScan: fakeDescribe,
+      onProgress: (done, total) => events.push({ done, total }),
+    });
+    expect(events).toEqual([
+      { done: 5, total: 12 },
+      { done: 10, total: 12 },
+      { done: 12, total: 12 },
+    ]);
+  });
+
+  it('onProgress 抛错不影响扫描（非关键路径）', async () => {
+    const v = new FakeVideo();
+    const out = await scanFrames(v, [1000, 2000], {
+      budgetMs: 60_000,
+      describeScan: fakeDescribe,
+      onProgress: () => {
+        throw new Error('progress bug');
+      },
+    });
+    expect(out).toHaveLength(2);
+  });
+
   it('扫描后恢复原播放位置；进行中标志复位', async () => {
     const v = new FakeVideo({ autoSeek: true });
     v.currentTime = 42;

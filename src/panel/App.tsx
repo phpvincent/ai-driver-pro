@@ -9,6 +9,7 @@ import { ChatTab } from './ChatTab';
 import { listQaByVideo } from '../storage/db';
 import { MindmapTab } from './MindmapTab';
 import { HelpOverlay } from './HelpOverlay';
+import { publishProgress } from './progressBus';
 import { OutlineTab } from './OutlineTab';
 import { generateOutline, loadOutlineCached, regenerateOne } from './outlineLoader';
 import { SettingsPage } from './settings/SettingsPage';
@@ -261,7 +262,16 @@ export function App() {
     }
 
     const listener = (message: RuntimeMessage) => {
-      if (message.type === MSG.VIDEO_CHANGED) {
+      if (message.type === MSG.SCAN_PROGRESS) {
+        // SPEC-12：content 扫描进度 → 进度总线（Outline/Mindmap 的进度条消费）
+        publishProgress({
+          videoId: message.payload.videoId,
+          stage: 'scan',
+          done: message.payload.scanned,
+          total: message.payload.total,
+          label: `画面扫描 ${message.payload.scanned}/${message.payload.total}`,
+        });
+      } else if (message.type === MSG.VIDEO_CHANGED) {
         setVideo(message.payload);
         setPlayback(null);
       } else if (message.type === MSG.PLAYBACK_CHANGED) {
@@ -659,6 +669,7 @@ export function App() {
             )}
             {effectiveTab === 'mindmap' && (
               <MindmapTab
+        videoId={video?.videoId}
                 sections={sections}
                 videoTitle={video?.title ?? ''}
                 positionMs={playback?.positionMs ?? 0}

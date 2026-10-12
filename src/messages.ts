@@ -26,6 +26,8 @@ export const MSG = {
   CAPTURE_FRAMES: 'video/capture-frames',
   /** 页聚类精修（SPEC-11）：轻量扫描，只回 dHash+清晰度样本 */
   SCAN_FRAMES: 'video/scan-frames',
+  /** 扫描进度广播（SPEC-12）：content → background → panel */
+  SCAN_PROGRESS: 'video/scan-progress',
   /** panel -> background：拉取当前 tab 的视频信息（panel 打开时） */
   CURRENT_VIDEO_GET: 'video/current-get',
   /** panel <-> background：设置读写 */
@@ -114,6 +116,7 @@ export type RuntimeMessage =
   | { type: typeof MSG.SEEK; payload: SeekPayload }
   | { type: typeof MSG.CAPTURE_FRAMES; payload: CaptureFramesPayload }
   | { type: typeof MSG.SCAN_FRAMES; payload: ScanFramesPayload }
+  | { type: typeof MSG.SCAN_PROGRESS; payload: { videoId: VideoId; scanned: number; total: number } }
   | { type: typeof MSG.PAUSE; payload: VideoIdPayload }
   | { type: typeof MSG.RESUME; payload: VideoIdPayload }
   | { type: typeof MSG.CURRENT_VIDEO_GET }

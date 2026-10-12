@@ -232,6 +232,20 @@ async function readModuleModel(module: 'outline' | 'mindmap' | 'qa'): Promise<Mo
  * 轻量扫描候选邻域（SPEC-11）：构建采样点 → SCAN_FRAMES → 样本。
  * 任何失败（消息断 / 无 video / 超预算）由调用方 catch 成空数组 → 精修恒等。
  */
+/** 读取扫描预算（SPEC-12 用户设置；缺省/非法回落 VISION.refine.budgetMs） */
+async function scanBudgetMs(): Promise<number> {
+  try {
+    const settings = (await chrome.runtime.sendMessage({ type: MSG.GET_SETTINGS })) as
+      | { frameScan?: { budgetSec?: number } }
+      | null;
+    const sec = Number(settings?.frameScan?.budgetSec);
+    if (Number.isFinite(sec) && sec >= 5 && sec <= 120) return Math.round(sec * 1000);
+  } catch {
+    /* 设置读取失败走默认 */
+  }
+  return VISION.refine.budgetMs;
+}
+
 async function scanAroundCandidates(
   videoId: string,
   candidates: FrameCandidate[],
@@ -252,7 +266,7 @@ async function scanAroundCandidates(
         // 交错序：预算耗尽时已扫部分均匀覆盖全程（冒烟：升序导致 32 分钟视频
         // 只精修到 20 分钟处，后段全部放弃）
         pointsMs: interleaveScanOrder(points),
-        budgetMs: VISION.refine.budgetMs,
+        budgetMs: await scanBudgetMs(),
       },
     })) as { samples?: ScannedSample[] } | null;
     return Array.isArray(response?.samples) ? (response.samples as ScannedSample[]) : [];
