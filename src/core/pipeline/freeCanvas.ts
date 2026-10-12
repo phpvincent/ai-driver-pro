@@ -13,7 +13,20 @@ import type { Section } from '../../types';
 export type CanvasKind = 'mindmap' | 'flowchart';
 
 /** 模型调用注入（与其它 pipeline 同风格） */
-export type CanvasModelFn = (req: { systemPrompt: string; userPrompt: string }) => Promise<{ content: string }>;
+/** 画布模型调用注入的图片（多模态画布：流程图/思维导图结合课程画面） */
+export interface CanvasImage {
+  dataBase64: string;
+  mime?: string;
+  timeMs?: number;
+  caption?: string;
+  thumbBase64?: string;
+}
+
+export type CanvasModelFn = (req: {
+  systemPrompt: string;
+  userPrompt: string;
+  images?: CanvasImage[];
+}) => Promise<{ content: string }>;
 
 /** 语法校验注入：通过 resolve，失败 throw（错误信息会回灌给模型重试） */
 export type CanvasValidateFn = (code: string) => Promise<void>;
@@ -140,6 +153,8 @@ export interface GenerateCanvasArgs {
   userPrompt: string;
   videoTitle: string;
   modelFn: CanvasModelFn;
+  /** 课程画面（可选，多模态模型）：与章节素材一起供模型作图参考 */
+  images?: CanvasImage[];
   /** 渲染器级语法校验（Mermaid parse）；缺省只做 Zod 结构校验 */
   validate?: CanvasValidateFn;
   /** 重试前回调（进度提示用） */
@@ -167,7 +182,7 @@ async function cleanAndCheck(content: string, args: GenerateCanvasArgs): Promise
  * 仍失败则 throw 可读错误，由 UI 呈现并提供重试按钮。
  */
 export async function generateCanvas(args: GenerateCanvasArgs): Promise<string> {
-  const first = await args.modelFn({ systemPrompt: args.systemPrompt, userPrompt: args.userPrompt });
+  const first = await args.modelFn({ systemPrompt: args.systemPrompt, userPrompt: args.userPrompt, images: args.images });
   try {
     return await cleanAndCheck(first.content, args);
   } catch (err) {
@@ -177,7 +192,7 @@ export async function generateCanvas(args: GenerateCanvasArgs): Promise<string> 
     const retryPrompt =
       `${args.userPrompt}\n\n【上次输出未通过校验】${truncate(reason, 300)}\n` +
       `请修正后重新输出完整的${what}，只输出一个代码块，不要解释。`;
-    const second = await args.modelFn({ systemPrompt: args.systemPrompt, userPrompt: retryPrompt });
+    const second = await args.modelFn({ systemPrompt: args.systemPrompt, userPrompt: retryPrompt, images: args.images });
     try {
       return await cleanAndCheck(second.content, args);
     } catch (err2) {
