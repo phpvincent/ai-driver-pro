@@ -22,6 +22,8 @@ import {
   recordsToMessages,
   resolveRange,
   snapTimestamps,
+  splitInlineTimestamps,
+  hasInlineTimestamps,
 } from '../../../src/panel/ChatTab';
 import { extractSelectionText } from '../../../src/panel/SubtitleTab';
 import type { Cue, QaRecord, Section } from '../../../src/types';
@@ -125,6 +127,40 @@ describe('snapTimestamps（A3：渲染前吸附到 Cue，越界丢弃）', () =>
 
   it('去重并升序', () => {
     expect(snapTimestamps([100, 36, 38], cues)).toEqual([36_000, 100_000]);
+  });
+});
+
+describe('splitInlineTimestamps / hasInlineTimestamps（SPEC-15 九轮：正文内嵌 [mm:ss] chip）', () => {
+  const cues = [
+    cue(0, 0, 4000, 'a'),
+    cue(1, 36_000, 40_000, 'b'),
+    cue(2, 100_000, 104_000, 'c'),
+  ];
+
+  it('文本与 chip 交替切分；chip 吸附到最近 Cue 起点', () => {
+    const segs = splitInlineTimestamps('先横再竖是通用解法 [00:36]，位置对应 [01:40]。', cues);
+    expect(segs).toEqual([
+      { text: '先横再竖是通用解法 ', ms: null },
+      { text: '', ms: 36_000 },
+      { text: '，位置对应 ', ms: null },
+      { text: '', ms: 100_000 },
+      { text: '。', ms: null },
+    ]);
+    expect(hasInlineTimestamps('先横再竖 [00:36]', cues)).toBe(true);
+  });
+
+  it('越界/无字幕的标记按普通文本处理（不可点，防编造时间戳）', () => {
+    const outOfRange = splitInlineTimestamps('编造的时间 [99:99] 与 [05:00]。', cues);
+    expect(outOfRange.every((s) => s.ms === null)).toBe(true); // 全部退化为文本
+    expect(hasInlineTimestamps('编造 [99:99]', cues)).toBe(false);
+    const noCues = splitInlineTimestamps('无字幕时 [00:36] 不可点', []);
+    expect(noCues.every((s) => s.ms === null)).toBe(true);
+  });
+
+  it('无标记正文 → 单段文本', () => {
+    expect(splitInlineTimestamps('普通回答，没有标记。', cues)).toEqual([
+      { text: '普通回答，没有标记。', ms: null },
+    ]);
   });
 });
 

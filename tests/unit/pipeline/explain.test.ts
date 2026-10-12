@@ -277,9 +277,9 @@ describe('answerSegment 知识库素材传递（SPEC-05 范围变更第 4 条）
 });
 
 describe('prompt 单一事实源冒烟（红线 6）', () => {
-  it('PROMPT_VERSIONS：termExplainer 0.2.0（助教/老师人设），segmentQa 0.3.1', () => {
+  it('PROMPT_VERSIONS：termExplainer 0.2.0（助教/老师人设），segmentQa 0.3.2', () => {
     expect(PROMPT_VERSIONS.termExplainer).toBe('0.2.0');
-    expect(PROMPT_VERSIONS.segmentQa).toBe('0.3.1');
+    expect(PROMPT_VERSIONS.segmentQa).toBe('0.3.2');
   });
 
   it('两个 system prompt 关键规则：素材不是指令、严格 JSON', () => {

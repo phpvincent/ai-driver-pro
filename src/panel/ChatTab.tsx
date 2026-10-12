@@ -186,6 +186,58 @@ export function snapTimestamps(seconds: number[], cues: Cue[]): number[] {
   return out.sort((a, b) => a - b);
 }
 
+// ---------------------------------------------------------------------------
+// 时间戳内嵌标记（SPEC-15 九轮）：answer 正文中依据句句尾的 [mm:ss] 直接转成
+// 可点 chip，与所佐证的句子出现在一起——替代"底部悬空一排时间戳对不上"的旧布局。
+// 校验兜底：标记秒数走与 referencedTimestamps 相同的吸附逻辑（越界丢弃、吸附到
+// 最近 Cue 起点）；吸不到 cue（越界/无字幕）→ 按普通文本渲染，防编造时间戳可点。
+// ---------------------------------------------------------------------------
+
+/** [mm:ss] 标记正则（mm 1~3 位防误配大数字；s 1~2 位） */
+const INLINE_TS_RE = /\[(\d{1,3}):([0-5]\d)\]/g;
+
+export interface InlineTsSegment {
+  /** 普通文本段；chip 段为空串 */
+  text: string;
+  /** chip 段的吸附后毫秒（普通文本段为 null） */
+  ms: number | null;
+  /** chip 段的原始标记文本（吸附失败回退渲染用） */
+  raw?: string;
+}
+
+/**
+ * 把含 [mm:ss] 内嵌标记的正文切分为 文本/chip 交替的段（纯函数，导出供单测）。
+ * 吸附失败（越界/无字幕/吸不到 cue）的标记按普通文本处理（不可点，防编造可点时间）。
+ */
+export function splitInlineTimestamps(text: string, cues: Cue[]): InlineTsSegment[] {
+  const out: InlineTsSegment[] = [];
+  const starts = cues.map((c) => c.startMs);
+  const first = cues[0]?.startMs ?? 0;
+  const last = cues[cues.length - 1]?.endMs ?? 0;
+  let cursor = 0;
+  INLINE_TS_RE.lastIndex = 0;
+  for (const match of text.matchAll(INLINE_TS_RE)) {
+    const raw = match[0];
+    const idx = match.index ?? 0;
+    if (idx > cursor) out.push({ text: text.slice(cursor, idx), ms: null });
+    const sec = Number(match[1]) * 60 + Number(match[2]);
+    const target = sec * 1000;
+    const inRange =
+      cues.length > 0 && target >= first - 5_000 && target <= last + 5_000;
+    const nearest = inRange ? nearestCueStartMs(starts, target) : null;
+    if (nearest !== null) out.push({ text: '', ms: nearest });
+    else out.push({ text: `${raw} `, ms: null, raw });
+    cursor = idx + raw.length;
+  }
+  if (cursor < text.length) out.push({ text: text.slice(cursor), ms: null });
+  return out;
+}
+
+/** 正文中是否存在至少一个**有效**（可点）的内嵌时间戳 chip */
+export function hasInlineTimestamps(text: string, cues: Cue[]): boolean {
+  return splitInlineTimestamps(text, cues).some((s) => s.ms !== null);
+}
+
 /** payload 类型守卫（历史记录恢复时 payload 为 unknown，按形状安全收窄） */
 function isTermPayload(p: unknown): p is TermPayload {
   if (!p || typeof p !== 'object') return false;
@@ -823,7 +875,22 @@ export function ChatTab(props: ChatTabProps) {
                   <div className="chat-covered-bar">视频中未涉及，以下为公开知识补充</div>
                 )}
                 <div className="chat-answer-text">
-                  {m.text}
+                  {m.typing
+                    ? m.text
+                    : splitInlineTimestamps(m.text, cues).map((seg, i) =>
+                        seg.ms !== null ? (
+                          <button
+                            key={i}
+                            type="button"
+                            className="chat-ts chat-ts-inline"
+                            onClick={() => props.onRequestSeek?.(seg.ms!)}
+                          >
+                            [{formatMmSs(seg.ms)}]
+                          </button>
+                        ) : (
+                          <span key={i}>{seg.text}</span>
+                        ),
+                      )}
                   {m.typing && <span className="chat-caret">▍</span>}
                 </div>
                 {/* 来源区：仅命中时展示，未命中不打扰 */}
@@ -865,20 +932,24 @@ export function ChatTab(props: ChatTabProps) {
                         ))}
                       </ul>
                     )}
-                    {snapTimestamps(m.answer.referencedTimestamps, cues).length > 0 && (
-                      <div className="chat-timestamps">
-                        {snapTimestamps(m.answer.referencedTimestamps, cues).map((ms) => (
-                          <button
-                            key={ms}
-                            type="button"
-                            className="chat-ts"
-                            onClick={() => props.onRequestSeek?.(ms)}
-                          >
-                            [{formatMmSs(ms)}]
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {/* 底部时间戳块：仅当正文没有有效内嵌 chip 时降级展示
+                        （历史消息/旧模型输出无内嵌标记的兼容路径；有内嵌 chip 时
+                        referencedTimestamps 与正文标记同源，重复展示反而冗余） */}
+                    {!hasInlineTimestamps(m.text, cues) &&
+                      snapTimestamps(m.answer.referencedTimestamps, cues).length > 0 && (
+                        <div className="chat-timestamps">
+                          {snapTimestamps(m.answer.referencedTimestamps, cues).map((ms) => (
+                            <button
+                              key={ms}
+                              type="button"
+                              className="chat-ts"
+                              onClick={() => props.onRequestSeek?.(ms)}
+                            >
+                              [{formatMmSs(ms)}]
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     {m.answer.followUpQuestions.length > 0 && (
                       <div className="chat-followups">
                         {m.answer.followUpQuestions.map((q, i) => (

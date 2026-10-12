@@ -108,6 +108,14 @@
   cursor: pointer;
 }
 
+/* 内嵌时间戳 chip（SPEC-15 九轮）：行内出现，紧贴所佐证的句子 */
+.chat-ts-inline {
+  margin: 0 2px;
+  vertical-align: baseline;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
 .chat-followups {
   margin-top: 8px;
   display: flex;

@@ -160,18 +160,18 @@ describe('outline.md 正文关键规则（TECH-DESIGN §6.1 + SPEC-03 3c）', ()
   });
 });
 
-describe('人格化版本：term-explainer 0.2.0 / segment-qa 0.3.1（referencedTimestamps 上限放宽 6→12）', () => {
+describe('人格化版本：term-explainer 0.2.0 / segment-qa 0.3.2（answer 内嵌 [mm:ss] 标记）', () => {
   it('文件头版本与 PROMPT_VERSIONS 一致（index.ts 由解析自动跟上）', () => {
     expect(parsePromptHeader(termExplainerMdRaw)).toEqual({
       promptVersion: '0.2.0',
       kind: 'term-explainer',
     });
     expect(parsePromptHeader(segmentQaMdRaw)).toEqual({
-      promptVersion: '0.3.1',
+      promptVersion: '0.3.2',
       kind: 'segment-qa',
     });
     expect(PROMPT_VERSIONS.termExplainer).toBe('0.2.0');
-    expect(PROMPT_VERSIONS.segmentQa).toBe('0.3.1');
+    expect(PROMPT_VERSIONS.segmentQa).toBe('0.3.2');
   });
 
   it('硬验收：正文不得出现「字幕」字样（含磁盘原文与 loader 输出）', () => {

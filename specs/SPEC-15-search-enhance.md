@@ -19,6 +19,7 @@
 - **博查**：POST /v1/web-search（Bearer Key，summary=true，max 5 条）；失败/无 Key 静默跳过。响应形状为 `{code, msg, data:{webPages:{value[]}}}`（2026-10-13 实测修正：初版误读根级 webPages 导致"测试连接"误报失败与检索静默空结果；同时校验 body.code ≠ 200 按失败处理）
 - **Wikipedia 中文**：MediaWiki action=query&list=search（免 Key，srlimit=2，剥 HTML 标签）
 - **设置页**：搜索增强（可选）独立区段：密码输入 + 独立「保存」与「测试连接」按钮（2026-10-13 三轮：从 Obsidian 区段拆出防误点；测试连接用当前表单 Key 发一次真实检索，消耗 1 次额度）+ 博查开放平台链接（open.bochaai.com/api-keys，API Key 管理）+ 免费额度领取链接（open.bochaai.com/package/purchase，微信扫码注册免费领 1000 次试用包，无需信用卡）+ 获取步骤提示
+- **时间戳内嵌标记（2026-10-13 九轮，用户决策「内嵌标记」）**：answer 依据句句尾内嵌 [mm:ss]（prompt 0.3.2），渲染时正则切分转行内可点 chip（splitInlineTimestamps，吸附校验复用 snapTimestamps 口径：越界/无字幕→按普通文本，防编造时间戳可点）；底部 referencedTimestamps 块降级为兼容路径（仅正文无有效内嵌 chip 时展示，历史消息/旧输出）。解决"底部一排悬空时间戳对不上哪句是哪句"。
 - 端点全部来自 config 常量（红线 9）；检索内容仍受 webContextMaxChars 预算（红线 3）
 - 可观测性（2026-10-13 五轮）：检索请求（博查/Wikipedia/DDG）写入 LLM 交互日志（label `web-search`，不设 inputTokens 故不进费用汇总）；explain 两次 Schema 校验失败经 onValidationError 回调补一条 ok=false 的 qa 日志（请求本身 HTTP 成功，chatCompletion 只记 ok=true，不补则日志"看不到失败原因"）；referencedTimestamps 上限 6→12（检索增强后素材更密，紧上限导致整次回答失败，segment-qa.md 0.3.1）
 
@@ -31,3 +32,4 @@
 - [B4] 设置 → 搜索增强：「购买资源包」链接可点开（open.bochaai.com/package/purchase）；粘贴 Key 后点「测试连接」显示连接成功（消耗 1 次额度）；空 Key 点测试有提示
 - [B5] 问答触发检索时 LLM 日志出现 label 为 `web-search` 的条目（bocha/wikipedia，含检索词与结果标题）；Schema 校验两次失败时日志出现 ok=false 的 qa 条目（错误详情可见）；referencedTimestamps 上限放宽后不再因「Too big: <=6 items」整次失败
 - [B6] 模型切到 deepseek-v4-flash 后问时新问题：LLM 日志出现 `ds-web-search` 条目，来源区出现「DeepSeek 联网搜索」相关内容（open_page URL / 综合回答）；非 v4-flash 模型不出现该条目
+- [B7] 问答回答正文中依据句句尾出现行内 [mm:ss] chip，点击跳转对应位置；编造时间（吸不到字幕）不渲染成 chip；历史消息（旧输出）仍走底部时间戳块
