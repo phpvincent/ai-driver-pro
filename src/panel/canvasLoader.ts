@@ -93,30 +93,16 @@ export async function validateMermaid(code: string): Promise<void> {
  * 都在同一个视频上 seek——同时生成会让画面跳来跳去。任一画布生成期间，
  * 其他生成入口一律禁用。
  */
-let canvasGenActive = false;
-const canvasBusyListeners = new Set<() => void>();
+import { isGenBusy, subscribeGenBusy, withGenMutex } from './genMutex';
 
-/** 是否有任一画布正在生成（按钮禁用判断） */
+/** 是否有任一生成任务（画布 / 大纲）正在运行（按钮禁用判断） */
 export function isCanvasBusy(): boolean {
-  return canvasGenActive;
+  return isGenBusy();
 }
 
 /** 订阅互斥状态变化（返回取消订阅函数） */
 export function subscribeCanvasBusy(fn: () => void): () => void {
-  canvasBusyListeners.add(fn);
-  return () => canvasBusyListeners.delete(fn);
-}
-
-function setCanvasBusy(v: boolean): void {
-  if (canvasGenActive === v) return;
-  canvasGenActive = v;
-  for (const fn of canvasBusyListeners) {
-    try {
-      fn();
-    } catch {
-      /* 订阅者异常不影响其他订阅者 */
-    }
-  }
+  return subscribeGenBusy(fn);
 }
 
 /**
@@ -142,7 +128,6 @@ export async function generateCanvasFor(
   const existing = getCanvasInflight(kind, videoId);
   if (existing) return existing;
 
-  setCanvasBusy(true);
   const run = (async (): Promise<CanvasRecord> => {
   const settings = await fetchSettings();
   const model = resolveModel(settings);
@@ -236,9 +221,8 @@ export async function generateCanvasFor(
 
   inflightGenerations.set(`gen::${kind}::${videoId}`, run);
   try {
-    return await run;
+    return await withGenMutex(() => run);
   } finally {
     inflightGenerations.delete(`gen::${kind}::${videoId}`);
-    setCanvasBusy(false);
   }
 }
