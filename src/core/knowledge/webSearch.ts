@@ -129,14 +129,15 @@ async function fetchWithTimeout(
   fetchFn: SearchFetch,
   url: string,
   timeoutMs: number,
+  init?: RequestInit,
 ): Promise<Response> {
   if (typeof AbortController === 'undefined' || timeoutMs <= 0) {
-    return await fetchFn(url, { method: 'GET' });
+    return await fetchFn(url, { method: 'GET', ...init });
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetchFn(url, { method: 'GET', signal: controller.signal });
+    return await fetchFn(url, { method: 'GET', signal: controller.signal, ...init });
   } finally {
     clearTimeout(timer);
   }
@@ -191,4 +192,121 @@ export function buildWebContext(
   const kept = trimSnippets(snippets, maxChars);
   if (kept.length === 0) return '';
   return [WEB_BEGIN_MARK, ...kept.map(formatSnippetLine)].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-15 搜索增强：Tavily（用户 Key）+ Wikipedia 中文（免 Key）
+// 三级瀑布由 loader 层编排：Tavily → Wikipedia → DuckDuckGo（本文件既有）
+// ---------------------------------------------------------------------------
+
+import { TAVILY, WIKIPEDIA } from '../../config';
+
+/** Tavily 响应解析（纯函数，导出供单测）：results[].{title,url,content} */
+export function parseTavilyResults(json: unknown, maxResults: number): WebSnippet[] {
+  const root = (json ?? {}) as { results?: unknown };
+  if (!Array.isArray(root.results)) return [];
+  const out: WebSnippet[] = [];
+  for (const r of root.results) {
+    if (out.length >= maxResults) break;
+    const item = (r ?? {}) as { title?: unknown; url?: unknown; content?: unknown };
+    const title = typeof item.title === 'string' ? item.title.trim() : '';
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    const snippet = typeof item.content === 'string' ? item.content.trim() : '';
+    if (url && snippet) out.push({ title: title || url, url, snippet: snippet.slice(0, 400) });
+  }
+  return out;
+}
+
+/**
+ * Tavily 搜索（用户 Key，SPEC-15）：POST /search，LLM 专用——返回已提取的
+ * 网页正文片段。任何失败（Key 无效/网络/超时/解析）返回空数组，由瀑布下层兜底。
+ */
+export async function searchTavily(
+  query: string,
+  apiKey: string,
+  fetchFn: SearchFetch,
+  opts: { maxResults?: number; timeoutMs?: number } = {},
+): Promise<WebSnippet[]> {
+  const key = apiKey.trim();
+  const q = (query ?? '').trim();
+  if (!key || !q) return [];
+  const maxResults = opts.maxResults ?? TAVILY.defaultMaxResults;
+  const timeoutMs = opts.timeoutMs ?? TAVILY.requestTimeoutMs;
+  try {
+    const res = await fetchWithTimeout(
+      fetchFn,
+      TAVILY.endpoint,
+      timeoutMs,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          query: q,
+          max_results: maxResults,
+          search_depth: 'basic',
+          include_answer: false,
+        }),
+      },
+    );
+    if (!res || res.ok !== true) return [];
+    const json: unknown = await res.json();
+    return parseTavilyResults(json, maxResults);
+  } catch {
+    return [];
+  }
+}
+
+/** Wikipedia 搜索响应解析（纯函数，导出供单测）：query.search[].{title,snippet} */
+export function parseWikipediaResults(json: unknown, maxResults: number): WebSnippet[] {
+  const root = (json ?? {}) as { query?: { search?: unknown } };
+  const list = root.query?.search;
+  if (!Array.isArray(list)) return [];
+  const out: WebSnippet[] = [];
+  for (const r of list) {
+    if (out.length >= maxResults) break;
+    const item = (r ?? {}) as { title?: unknown; snippet?: unknown };
+    const title = typeof item.title === 'string' ? item.title.trim() : '';
+    const snippet = typeof item.snippet === 'string' ? item.snippet.replace(/<[^>]+>/g, '').trim() : '';
+    if (title && snippet) {
+      const url = `https://zh.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+      out.push({ title, url, snippet: snippet.slice(0, 300) });
+    }
+  }
+  return out;
+}
+
+/** 构造 Wikipedia 搜索 URL（纯函数；红线 9：端点来自 config 常量） */
+export function buildWikipediaUrl(query: string): string {
+  const params = new URLSearchParams({
+    action: 'query',
+    list: 'search',
+    srsearch: query,
+    srlimit: String(WIKIPEDIA.defaultMaxResults),
+    format: 'json',
+    origin: '*',
+  });
+  return `${WIKIPEDIA.endpoint}?${params.toString()}`;
+}
+
+/**
+ * Wikipedia 中文搜索（免 Key，SPEC-15）：概念词条覆盖好（公考/考研术语大多有词条）。
+ * 全程不 throw；失败返回空数组由瀑布下层兜底。
+ */
+export async function searchWikipedia(
+  query: string,
+  fetchFn: SearchFetch,
+  opts: { maxResults?: number; timeoutMs?: number } = {},
+): Promise<WebSnippet[]> {
+  const q = (query ?? '').trim();
+  if (!q) return [];
+  const maxResults = opts.maxResults ?? WIKIPEDIA.defaultMaxResults;
+  const timeoutMs = opts.timeoutMs ?? WIKIPEDIA.requestTimeoutMs;
+  try {
+    const res = await fetchWithTimeout(fetchFn, buildWikipediaUrl(q), timeoutMs);
+    if (!res || res.ok !== true) return [];
+    const json: unknown = await res.json();
+    return parseWikipediaResults(json, maxResults);
+  } catch {
+    return [];
+  }
 }

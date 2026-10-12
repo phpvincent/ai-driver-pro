@@ -22,7 +22,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { chatCompletion } from '../../core/harness/modelClient';
-import { DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
+import { TAVILY, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
 import { testObsidianConnection } from '../obsidianLoader';
@@ -170,6 +170,8 @@ export function SettingsPage({
   const [obsidian, setObsidian] = useState<ObsidianFormState>(INITIAL_OBSIDIAN_FORM);
   /** 问答时检索个人知识库（默认开启，与 Obsidian 配置一起保存） */
   const [knowledgeSearch, setKnowledgeSearch] = useState<boolean>(true);
+  /** Tavily 搜索增强 Key（SPEC-15：可选；配置后公开资料升级 LLM 专用搜索） */
+  const [tavilyKey, setTavilyKey] = useState('');
   const [obsidianFeedback, setObsidianFeedback] = useState<Feedback>(null);
   const [obsidianTesting, setObsidianTesting] = useState(false);
   const [obsidianSaving, setObsidianSaving] = useState(false);
@@ -259,6 +261,7 @@ export function SettingsPage({
           enabled: obs.enabled !== false,
         });
         setKnowledgeSearch(stored.knowledgeSearch !== false);
+        setTavilyKey(typeof stored.tavilyApiKey === 'string' ? stored.tavilyApiKey : '');
         setForm(
           configToForm({
             baseUrl: merged.baseUrl ?? '',
@@ -494,7 +497,7 @@ export function SettingsPage({
       enabled: obsidian.enabled,
     };
     // 与 Obsidian 配置一起保存 knowledgeSearch 开关（整份 settings 合并写，不动其他分区）
-    savePatch({ obsidian: cfg, knowledgeSearch })
+    savePatch({ obsidian: cfg, knowledgeSearch, tavilyApiKey: tavilyKey.trim() })
       .then((ok) => {
         setObsidianFeedback(
           ok ? { kind: 'ok', text: '已保存' } : { kind: 'error', text: '保存失败：background 未确认' },
@@ -859,6 +862,27 @@ export function SettingsPage({
             }}
           />
           <span>问答时检索个人知识库（默认开启）</span>
+        </label>
+        <label className="field">
+          <span>搜索增强（可选）</span>
+          <input
+            type="password"
+            value={tavilyKey}
+            placeholder="Tavily API Key（可选）"
+            onChange={(e) => {
+              setTavilyKey(e.target.value);
+              setObsidianFeedback(null);
+            }}
+          />
+          <span className="settings-hint">
+            配置后问答的公开资料检索升级为 LLM 专用搜索（覆盖新闻 / 时效内容，质量大幅提升）；
+            免费档每月 1000 次足够学习使用。到
+            <a href={TAVILY.consoleUrl} target="_blank" rel="noreferrer">
+              Tavily 官网（app.tavily.com）
+            </a>
+            注册（免费、无需信用卡）→ Home 页 API Keys 处复制粘贴到这里，随上面「保存」一并生效。
+            不配置则使用内置检索（Wikipedia + DuckDuckGo）
+          </span>
         </label>
         <div className="field-row">
           <button

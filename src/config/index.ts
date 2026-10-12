@@ -108,6 +108,27 @@ export const WEB_SEARCH = {
  */
 export const WEB_SEARCH_FALLBACK_URL = 'https://duckduckgo.com/?q=';
 
+/**
+ * 搜索增强（SPEC-15）：三级瀑布 = Tavily（用户 Key，LLM 专用搜索）→
+ * Wikipedia 中文（免 Key，概念词条）→ DuckDuckGo Instant Answer（兜底）。
+ * 检索前先由模型路由判断"这题需要外部资料吗"（课内知识够就不发请求）。
+ */
+export const TAVILY = {
+  endpoint: 'https://api.tavily.com/search',
+  /** 免费档 1000 次/月；超出由用户自查额度 */
+  requestTimeoutMs: 10_000,
+  defaultMaxResults: 5,
+  /** 控制台（设置页引导链接用，红线 9：URL 唯一来源） */
+  consoleUrl: 'https://app.tavily.com/home',
+} as const;
+
+export const WIKIPEDIA = {
+  /** MediaWiki Action API（中文站，免 Key） */
+  endpoint: 'https://zh.wikipedia.org/w/api.php',
+  requestTimeoutMs: 6_000,
+  defaultMaxResults: 2,
+} as const;
+
 export const SUBTITLE = {
   mergeShorterThanMs: 800,
   /** 手动粘贴纯文本的时间估算速率 */
