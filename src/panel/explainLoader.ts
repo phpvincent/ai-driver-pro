@@ -166,7 +166,7 @@ async function searchWithLog(
       responsePreview:
         snippets.length > 0
           ? snippets.map((s) => `- ${s.title}（${s.url}）`).join('\n')
-          : '（0 条结果：无匹配 / Key 无效 / 额度耗尽均可能，走瀑布下层兜底）',
+          : '（0 条结果：无匹配 / Key 无效 / 额度耗尽均可能）',
     });
     return snippets;
   } catch (err) {
@@ -181,9 +181,11 @@ async function searchWithLog(
 }
 
 /**
- * 公开资料三级瀑布（SPEC-15）：博查 Bocha（用户 Key）→ Wikipedia 中文 → DuckDuckGo。
- * 任一层拿到结果即止；博查与 Wikipedia 可并行（互不依赖），
- * 两者都空再走 DDG 兜底。全程静默降级。
+ * 公开资料并行检索（SPEC-15 六轮改造）：博查 + Wikipedia + DDG 三路**同时**发，
+ * 不再是"上层空手才轮到 DDG"的瀑布——冷门词前两级空手时 DDG 已在途，不用再等一轮。
+ * 组装时按优先级排序：博查 → Wikipedia → DDG（DDG 噪音较高放末位；
+ * trimSnippets 按字符预算从头装，天然保住高优先级、DDG 只补余量）。
+ * 全程静默降级：任一路失败不影响其他两路。
  */
 async function loadWeb(
   query: string,
@@ -191,34 +193,22 @@ async function loadWeb(
 ): Promise<{ snippets: WebSnippet[]; context: string }> {
   const fetchFn = (url: string, init?: RequestInit) => fetch(url, init);
   try {
-    if (bochaKey && bochaKey.trim().length > 0) {
-      const [bocha, wiki] = await Promise.all([
-        searchWithLog('bocha', hostOfUrl(BOCHA.endpoint), query, () =>
-          searchBocha(query, bochaKey, fetchFn as never),
-        ),
-        searchWithLog('wikipedia', 'zh.wikipedia.org', query, () =>
-          searchWikipedia(query, fetchFn as never),
-        ),
-      ]);
-      const merged = [...bocha, ...wiki];
-      if (merged.length > 0) {
-        const snippets = trimSnippets(merged, CONTEXT.webContextMaxChars);
-        return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
-      }
-    } else {
-      const wiki = await searchWithLog('wikipedia', 'zh.wikipedia.org', query, () =>
+    const hasBocha = Boolean(bochaKey && bochaKey.trim().length > 0);
+    const [bocha, wiki, ddg] = await Promise.all([
+      hasBocha
+        ? searchWithLog('bocha', hostOfUrl(BOCHA.endpoint), query, () =>
+            searchBocha(query, bochaKey!, fetchFn as never),
+          )
+        : Promise.resolve([] as WebSnippet[]),
+      searchWithLog('wikipedia', 'zh.wikipedia.org', query, () =>
         searchWikipedia(query, fetchFn as never),
-      );
-      if (wiki.length > 0) {
-        const snippets = trimSnippets(wiki, CONTEXT.webContextMaxChars);
-        return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
-      }
-    }
-    // 兜底：DDG Instant Answer（现状行为）
-    const raw = await searchWithLog('duckduckgo', 'duckduckgo.com', query, () =>
-      searchWeb(query, fetchFn as never),
-    );
-    const snippets = trimSnippets(raw, CONTEXT.webContextMaxChars);
+      ),
+      searchWithLog('duckduckgo', 'duckduckgo.com', query, () =>
+        searchWeb(query, fetchFn as never),
+      ),
+    ]);
+    const merged = [...bocha, ...wiki, ...ddg];
+    const snippets = trimSnippets(merged, CONTEXT.webContextMaxChars);
     return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
   } catch {
     return { snippets: [], context: '' };
