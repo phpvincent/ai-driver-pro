@@ -483,7 +483,8 @@ describe('MindmapTab 渲染冒烟（renderToString，仅无 effect 分支）', (
     );
     expect(html).toContain(MINDMAP_EMPTY_TEXT);
     expect(html).not.toContain(MINDMAP_EMPTY_ACTION_TEXT);
-    expect(html).toContain(CONCEPT_VIEW_LABEL);
+    // 2026-10-12 用户决策：概念图 tab 移除，视图只剩流程图 / 思维导图
+    expect(html).not.toContain(CONCEPT_VIEW_LABEL);
     expect(html).toContain(CHRONO_VIEW_LABEL);
   });
 

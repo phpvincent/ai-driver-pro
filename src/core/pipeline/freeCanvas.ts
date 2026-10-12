@@ -190,3 +190,13 @@ export async function generateCanvas(args: GenerateCanvasArgs): Promise<string> 
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
+
+/**
+ * 画布下载文件名（SPEC-13 补充：导图下载按钮）：`{标题净化}-{思维导图|流程图}.{ext}`。
+ * 与 localMarkdownFileName 同风格；标题去文件系统危险字符，空标题回落「视频」。
+ */
+export function canvasDownloadFileName(videoTitle: string, kind: CanvasKind, ext: 'svg' | 'md' | 'mmd'): string {
+  const safe = (videoTitle || '视频').replace(/[\\/:*?"<>|\s]+/g, '').slice(0, 40) || '视频';
+  const label = kind === 'mindmap' ? '思维导图' : '流程图';
+  return `${safe}-${label}.${ext}`;
+}

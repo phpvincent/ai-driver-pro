@@ -9,6 +9,8 @@ import type { Markmap } from 'markmap-view';
 import type { CanvasKind } from '../core/pipeline/freeCanvas';
 import type { Section } from '../types';
 import { generateCanvasFor, getCanvasCached, type CanvasRecord } from './canvasLoader';
+import { canvasDownloadFileName } from '../core/pipeline/freeCanvas';
+import { downloadTextFile } from '../platform/files';
 import { GenerationProgress } from './GenerationProgress';
 
 export const AI_MINDMAP_HINT = '让 AI 按知识逻辑自由梳理整节课（不按时间堆砌，层级由内容决定）';
@@ -27,6 +29,9 @@ interface CanvasPanelProps {
 export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, onOpenSettings }: CanvasPanelProps) {
   const [rec, setRec] = useState<CanvasRecord | null>(null);
   const [busy, setBusy] = useState(false);
+  /** 已渲染的 SVG（下载用）：思维导图=svg 元素引用，流程图=svg 字符串 */
+  const markmapSvgRef = useRef<SVGSVGElement | null>(null);
+  const [mermaidSvg, setMermaidSvg] = useState('');
   const [error, setError] = useState<string | null>(null);
   /** 渲染层错误（mermaid 运行时渲染失败，罕见：parse 已过） */
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -67,16 +72,45 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
   const toolbar = (
     <div className="canvas-toolbar">
       <span className="canvas-badge">AI 自由作图</span>
-      {modelReady ? (
+      {modelReady && (
         <button type="button" className="btn" onClick={generate} disabled={busy}>
           {busy ? '生成中…' : rec ? '重新生成' : '生成'}
         </button>
-      ) : (
-        onOpenSettings && (
-          <button type="button" className="btn btn-primary" onClick={onOpenSettings}>
-            先去配置模型
+      )}
+      {!modelReady && onOpenSettings && (
+        <button type="button" className="btn btn-primary" onClick={onOpenSettings}>
+          先去配置模型
+        </button>
+      )}
+      {rec && !busy && (
+        <>
+          <button
+            type="button"
+            className="btn"
+            title="下载为 SVG 图片（可直接插入文档 / 分享）"
+            onClick={() => {
+              let svg = kind === 'mindmap' ? markmapSvgRef.current?.outerHTML ?? '' : mermaidSvg;
+              if (!svg) return;
+              if (kind === 'mindmap' && !svg.includes('xmlns=')) {
+                svg = svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+              }
+              downloadTextFile(canvasDownloadFileName(videoTitle, kind, 'svg'), svg, 'image/svg+xml');
+            }}
+          >
+            下载 SVG
           </button>
-        )
+          <button
+            type="button"
+            className="btn"
+            title={kind === 'mindmap' ? '下载层级 Markdown 源码（可再编辑 / 导入导图工具）' : '下载 Mermaid 源码（可在支持 Mermaid 的编辑器再编辑）'}
+            onClick={() => {
+              const ext = kind === 'mindmap' ? 'md' : 'mmd';
+              downloadTextFile(canvasDownloadFileName(videoTitle, kind, ext), rec.code, 'text/plain');
+            }}
+          >
+            下载源码
+          </button>
+        </>
       )}
     </div>
   );
@@ -107,9 +141,9 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
       )}
       {rec && !busy ? (
         kind === 'mindmap' ? (
-          <MarkmapCanvas markdown={rec.code} />
+          <MarkmapCanvas markdown={rec.code} svgElRef={markmapSvgRef} />
         ) : (
-          <MermaidCanvas code={rec.code} onRenderError={setRenderError} />
+          <MermaidCanvas code={rec.code} onRenderError={setRenderError} onSvgHtml={setMermaidSvg} />
         )
       ) : (
         !busy &&
@@ -128,8 +162,14 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
   );
 }
 
-/** 层级 Markdown → markmap（可折叠 / 缩放 / 平移，markmap 原生） */
-export function MarkmapCanvas({ markdown }: { markdown: string }) {
+/** 层级 Markdown → markmap（可折叠 / 缩放 / 平移，markmap 原生）；svgElRef 供外层下载 SVG */
+export function MarkmapCanvas({
+  markdown,
+  svgElRef,
+}: {
+  markdown: string;
+  svgElRef?: { current: SVGSVGElement | null };
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const mmRef = useRef<Markmap | null>(null);
 
@@ -137,6 +177,7 @@ export function MarkmapCanvas({ markdown }: { markdown: string }) {
     () => () => {
       mmRef.current?.destroy();
       mmRef.current = null;
+      if (svgElRef) svgElRef.current = null;
     },
     [],
   );
@@ -157,6 +198,7 @@ export function MarkmapCanvas({ markdown }: { markdown: string }) {
         mmRef.current.setData(root);
       }
       void mmRef.current.fit();
+      if (svgElRef) svgElRef.current = svgRef.current;
     })().catch(() => {
       /* 渲染失败静默：数据已过结构校验，极少发生 */
     });
@@ -175,7 +217,16 @@ export function MarkmapCanvas({ markdown }: { markdown: string }) {
 let mermaidSeq = 0;
 
 /** Mermaid 流程图 → SVG 画布（滚轮缩放 + 拖拽平移 + 适配按钮） */
-export function MermaidCanvas({ code, onRenderError }: { code: string; onRenderError?: (msg: string | null) => void }) {
+export function MermaidCanvas({
+  code,
+  onRenderError,
+  onSvgHtml,
+}: {
+  code: string;
+  onRenderError?: (msg: string | null) => void;
+  /** 渲染成功的 svg 字符串（外层下载 SVG 用） */
+  onSvgHtml?: (svg: string) => void;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState('');
   const [scale, setScale] = useState(1);
@@ -203,6 +254,7 @@ export function MermaidCanvas({ code, onRenderError }: { code: string; onRenderE
       const { svg: out } = await mermaid.render(id, code);
       if (!cancelled) {
         setSvg(out);
+        onSvgHtml?.(out);
         setScale(1);
         setOffset({ x: 0, y: 0 });
         onRenderError?.(null);

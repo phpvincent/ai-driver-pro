@@ -1039,6 +1039,9 @@ export function MindmapTab(props: MindmapTabProps) {
   return (
     <div className="mindmap-tab">
       <div className="mm-view-switch" role="tablist">
+        {/* 2026-10-12 用户决策：概念图 tab 移除（AI 自由画布取代）；concept 视图
+            渲染分支保留仅为 initialView 深链/单测路径，UI 不可达 */}
+
         <button
           type="button"
           className={`mm-view-btn${view === 'flow' ? ' active' : ''}`}
@@ -1048,24 +1051,11 @@ export function MindmapTab(props: MindmapTabProps) {
         </button>
         <button
           type="button"
-          className={`mm-view-btn${view === 'concept' ? ' active' : ''}`}
-          onClick={() => setView('concept')}
-        >
-          {CONCEPT_VIEW_LABEL}
-        </button>
-        <button
-          type="button"
           className={`mm-view-btn${view === 'chrono' ? ' active' : ''}`}
           onClick={() => setView('chrono')}
         >
           {CHRONO_VIEW_LABEL}
         </button>
-        {/* 重新生成入口：有缓存时也允许重抽（用户要求） */}
-        {generateConceptMap && sections.length > 0 && (
-          <button type="button" className="btn" onClick={handleGenerate} disabled={generating}>
-            {generating ? '生成中…' : conceptMap ? '重新生成' : CONCEPT_GENERATE_TEXT}
-          </button>
-        )}
         {/* 模型选择（margin-left:auto 靠右；select 不参与 tablist 语义） */}
         <ModelPicker onOpenSettings={onOpenSettings} />
         <GenerationBanner module="mindmap" />
