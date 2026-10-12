@@ -28,6 +28,12 @@ import {
   validateUploadFile,
   type UploadedImage,
 } from './uploadImage';
+import {
+  isTextUpload,
+  readTextUpload,
+  validateTextUpload,
+  type TextUpload,
+} from './uploadText';
 import './chat.css';
 
 /** 划词/提问请求（父 agent 接线 loader 时组装 compiler + pipeline） */
@@ -39,6 +45,8 @@ export interface ExplainRequest {
   positionMs: number;
   /** 学生上传的图片（题目 / 截图）；仅当模型支持多模态时由 ChatTab 附带 */
   uploads?: UploadedImage[];
+  /** 学生上传的文本附件（代码 / 笔记等）；纯文本，任何模型可用 */
+  textUploads?: TextUpload[];
   /** 最近问答（多轮记忆，SPEC-08 8.4b）：q=问题原文，a=回答要点摘要 */
   history?: ReadonlyArray<{ q: string; a: string }>;
 }
@@ -76,7 +84,7 @@ export interface ChatTabProps {
   /** 动态回答角色（每视频一次判定，父 agent 注入；未注入则不显示角色条） */
   persona?: Persona | null;
   /** 重判角色（父 agent 注入 personaLoader.generatePersona；未注入则按钮隐藏） */
-  onRefreshPersona?: () => Promise<void>;
+  onRefreshPersona?: (hint?: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +361,11 @@ export function ChatTab(props: ChatTabProps) {
   const [customEndText, setCustomEndText] = useState('01:00');
   /** 重判角色进行中（按钮禁用，避免重复触发模型调用） */
   const [refreshingPersona, setRefreshingPersona] = useState(false);
+  /** 重判角色的用户补充输入（结合视频内容与用户说明综合判定） */
+  const [personaHintOpen, setPersonaHintOpen] = useState(false);
+  const [personaHintText, setPersonaHintText] = useState('');
+  /** 文本附件（代码 / 笔记；不需要多模态模型） */
+  const [textUploads, setTextUploads] = useState<TextUpload[]>([]);
 
   const nextIdRef = useRef(1);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -596,27 +609,40 @@ export function ChatTab(props: ChatTabProps) {
   const personaLine = formatPersonaLine(props.persona);
 
   const handleSend = (): void => {
-    const hasUploads = uploads.length > 0;
-    // 只上传图片、不打字也能发：默认问题是"请讲解这道题"
-    const q = input.trim() || (hasUploads ? '请讲解图片中的这道题' : '');
+    const hasUploads = uploads.length > 0 || textUploads.length > 0;
+    // 只传附件、不打字也能发：默认问题是"请讲解这道题"
+    const q =
+      input.trim() ||
+      (hasUploads ? (uploads.length > 0 ? '请讲解图片中的这道题' : '请结合参考资料讲解') : '');
     if (!q || busy || !props.explain) return;
     setInput('');
     const sending = visionReady ? uploads : [];
+    const sendingText = textUploads;
     setUploads([]);
+    setTextUploads([]);
     setUploadError(null);
-    void ask({ question: q, rangeMs: requestRange(), positionMs, uploads: sending });
+    void ask({
+      question: q,
+      rangeMs: requestRange(),
+      positionMs,
+      uploads: sending,
+      textUploads: sendingText,
+    });
   };
 
-  /** 添加图片（文件选择 / 粘贴 / 拖拽共用）：逐张校验 + 压缩，失败给行内提示 */
+  /** 添加附件（文件选择 / 粘贴 / 拖拽共用）：图片走多模态管线，文本文件作为参考资料 */
   const addFiles = async (files: File[]): Promise<void> => {
-    if (!visionReady) {
-      setUploadError('当前模型不支持图片，请在设置中切换到多模态模型（如 Qwen-VL）');
-      return;
-    }
     setUploadError(null);
+    const images = files.filter((f) => !isTextUpload(f));
+    const texts = files.filter((f) => isTextUpload(f));
+    if (images.length > 0 && !visionReady) {
+      setUploadError('当前模型不支持图片，请在设置中切换到多模态模型（如 Qwen-VL）');
+      if (texts.length === 0) return;
+    }
     let count = uploads.length;
     const added: UploadedImage[] = [];
-    for (const file of files) {
+    for (const file of images) {
+      if (!visionReady) continue; // 文本继续，图片跳过（上方已提示）
       const err = validateUploadFile(file, count);
       if (err) {
         setUploadError(err);
@@ -630,6 +656,23 @@ export function ChatTab(props: ChatTabProps) {
       }
     }
     if (added.length > 0) setUploads((prev) => [...prev, ...added]);
+    // 文本附件：任何模型可用
+    let textCount = textUploads.length;
+    const addedText: TextUpload[] = [];
+    for (const file of texts) {
+      const err = validateTextUpload(file, textCount);
+      if (err) {
+        setUploadError(err);
+        continue;
+      }
+      try {
+        addedText.push(await readTextUpload(file, `txt-${Date.now()}-${textCount}`));
+        textCount += 1;
+      } catch {
+        setUploadError(`文件读取失败：${file.name}`);
+      }
+    }
+    if (addedText.length > 0) setTextUploads((prev) => [...prev, ...addedText]);
   };
 
   /** 粘贴截图（Cmd/Ctrl+V）：学生最常见的用法是截图后直接粘贴 */
@@ -644,12 +687,13 @@ export function ChatTab(props: ChatTabProps) {
     void addFiles(files);
   };
 
-  /** 重判角色：失败不弹错（角色条保持原状，红线 8） */
-  const handleRefreshPersona = (): void => {
+  /** 重判角色（可带用户补充说明；失败不弹错，角色条保持原状，红线 8） */
+  const handleRefreshPersona = (hint?: string): void => {
     const refresh = props.onRefreshPersona;
     if (!refresh || refreshingPersona) return;
     setRefreshingPersona(true);
-    void refresh()
+    setPersonaHintOpen(false);
+    void refresh(hint && hint.trim().length > 0 ? hint.trim() : undefined)
       .catch(() => undefined)
       .then(() => setRefreshingPersona(false));
   };
@@ -788,159 +832,211 @@ export function ChatTab(props: ChatTabProps) {
         {busy && <QaLoadingHint />}
       </div>
 
-      <div className="chat-range-bar">
-        <label className="chat-range-option">
-          <input
-            type="radio"
-            name="chat-range-mode"
-            checked={rangeMode === 'around'}
-            onChange={() => setRangeMode('around')}
-          />
-          播放位置±30s
-        </label>
-        <label className="chat-range-option">
-          <input
-            type="radio"
-            name="chat-range-mode"
-            checked={rangeMode === 'chapter'}
-            onChange={() => setRangeMode('chapter')}
-          />
-          当前整章
-        </label>
-        <label className="chat-range-option">
-          <input
-            type="radio"
-            name="chat-range-mode"
-            checked={rangeMode === 'custom'}
-            onChange={() => setRangeMode('custom')}
-          />
-          自定义
-        </label>
-        {rangeMode === 'custom' && (
-          <span className="chat-range-custom">
-            <input
-              className="chat-range-input"
-              value={customStartText}
-              placeholder="mm:ss"
-              onChange={(e) => setCustomStartText(e.target.value)}
-            />
-            <span>–</span>
-            <input
-              className="chat-range-input"
-              value={customEndText}
-              placeholder="mm:ss"
-              onChange={(e) => setCustomEndText(e.target.value)}
-            />
-          </span>
+      {/* 输入区（composer 卡片）：附件条 → 输入行 → 工具行（区间 / 角色 / 模型） */}
+      <div className="chat-composer">
+        {(uploads.length > 0 || textUploads.length > 0 || uploadError) && (
+          <div className="chat-upload-strip">
+            {uploads.map((u) => (
+              <div key={u.id} className="chat-upload-item" title={u.name}>
+                <img src={`data:${u.mime};base64,${u.dataBase64}`} alt={u.name} />
+                <button
+                  type="button"
+                  className="chat-upload-remove"
+                  aria-label={`移除 ${u.name}`}
+                  onClick={() => setUploads((prev) => prev.filter((x) => x.id !== u.id))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {textUploads.map((t) => (
+              <div key={t.id} className="chat-upload-item chat-upload-text" title={t.name}>
+                <span className="chat-upload-text-icon">📄</span>
+                <span className="chat-upload-text-name">{t.name}</span>
+                <button
+                  type="button"
+                  className="chat-upload-remove"
+                  aria-label={`移除 ${t.name}`}
+                  onClick={() => setTextUploads((prev) => prev.filter((x) => x.id !== t.id))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {(uploads.length > 0 || textUploads.length > 0) && (
+              <span className="chat-upload-count">
+                {attachmentLabel(uploads.length + textUploads.length)}
+              </span>
+            )}
+            {uploadError && <span className="chat-upload-error">{uploadError}</span>}
+          </div>
         )}
-        <span className="chat-range-current">
-          当前区间 {formatMmSs(displayRange[0])}-{formatMmSs(displayRange[1])}
-        </span>
-      </div>
 
-      {personaLine && (
         <div
-          className="chat-persona-bar"
-          style={{ ...KNOWLEDGE_HINT_STYLE, display: 'flex', alignItems: 'center', gap: 8 }}
-        >
-          <span>{personaLine}</span>
-          {props.onRefreshPersona && (
-            <button
-              type="button"
-              className="btn chat-persona-refresh"
-              disabled={refreshingPersona}
-              onClick={handleRefreshPersona}
-            >
-              {refreshingPersona ? '重判中…' : '重判角色'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* 模型选择（与设置页模型配置同源；三模块共用一套） */}
-      <ModelPicker onOpenSettings={props.onOpenSettings} />
-      <GenerationBanner module="qa" />
-
-      {(uploads.length > 0 || uploadError) && (
-        <div className="chat-upload-strip">
-          {uploads.map((u) => (
-            <div key={u.id} className="chat-upload-item" title={u.name}>
-              <img src={`data:${u.mime};base64,${u.dataBase64}`} alt={u.name} />
-              <button
-                type="button"
-                className="chat-upload-remove"
-                aria-label={`移除 ${u.name}`}
-                onClick={() => setUploads((prev) => prev.filter((x) => x.id !== u.id))}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          {uploads.length > 0 && <span className="chat-upload-count">{attachmentLabel(uploads.length)}</span>}
-          {uploadError && <span className="chat-upload-error">{uploadError}</span>}
-        </div>
-      )}
-
-      <div
-        className="chat-input-bar"
-        onDragOver={(e) => {
-          if (visionReady) e.preventDefault();
-        }}
-        onDrop={(e) => {
-          const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
-          if (files.length === 0) return;
-          e.preventDefault();
-          void addFiles(files);
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={UPLOAD_ACCEPT}
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = '';
+          className="chat-input-bar"
+          onDragOver={(e) => {
+            e.preventDefault();
+          }}
+          onDrop={(e) => {
+            const files = Array.from(e.dataTransfer?.files ?? []).filter(
+              (f) => f.type.startsWith('image/') || isTextUpload(f),
+            );
+            if (files.length === 0) return;
+            e.preventDefault();
             void addFiles(files);
           }}
-        />
-        <button
-          type="button"
-          className="btn chat-upload-btn"
-          disabled={busy || !props.explain}
-          title={
-            visionReady
-              ? '上传题目或截图（也可直接粘贴 / 拖入）'
-              : '当前模型不支持图片：请在设置中切换到多模态模型'
-          }
-          onClick={() => {
-            if (!visionReady) {
-              setUploadError('当前模型不支持图片，请在设置中切换到多模态模型（如 Qwen-VL）');
-              return;
-            }
-            fileInputRef.current?.click();
-          }}
         >
-          图片
-        </button>
-        <textarea
-          className="chat-input"
-          rows={2}
-          placeholder={visionReady ? '输入问题，或粘贴 / 拖入题目截图…' : '输入问题…'}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onPaste={handlePaste}
-        />
-        <button
-          type="button"
-          className="btn btn-primary chat-send"
-          disabled={busy || (!input.trim() && uploads.length === 0) || !props.explain}
-          onClick={handleSend}
-        >
-          发送
-        </button>
-        {!props.explain && <span className="chat-pending">待接线</span>}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={`${UPLOAD_ACCEPT},.txt,.md,.markdown,.csv,.log,.json,.js,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.go,.rs,.sql,.sh,.html,.css,.xml,.yml,.yaml`}
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              void addFiles(files);
+            }}
+          />
+          <button
+            type="button"
+            className="btn chat-upload-btn"
+            disabled={busy || !props.explain}
+            title="上传题目截图（需多模态模型）或代码 / 笔记等文本文件（任何模型可用）；也可直接粘贴 / 拖入"
+            onClick={() => {
+              fileInputRef.current?.click();
+            }}
+          >
+            附件
+          </button>
+          <textarea
+            className="chat-input"
+            rows={2}
+            placeholder={visionReady ? '输入问题，可粘贴截图或拖入代码文件…' : '输入问题，可拖入代码 / 笔记文件…'}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onPaste={handlePaste}
+          />
+          <button
+            type="button"
+            className="btn btn-primary chat-send"
+            disabled={busy || (!input.trim() && uploads.length === 0 && textUploads.length === 0) || !props.explain}
+            onClick={handleSend}
+          >
+            发送
+          </button>
+          {!props.explain && <span className="chat-pending">待接线</span>}
+        </div>
+
+        <div className="chat-toolbar">
+          <div className="chat-range-bar">
+            <label className="chat-range-option">
+              <input
+                type="radio"
+                name="chat-range-mode"
+                checked={rangeMode === 'around'}
+                onChange={() => setRangeMode('around')}
+              />
+              播放位置±30s
+            </label>
+            <label className="chat-range-option">
+              <input
+                type="radio"
+                name="chat-range-mode"
+                checked={rangeMode === 'chapter'}
+                onChange={() => setRangeMode('chapter')}
+              />
+              当前整章
+            </label>
+            <label className="chat-range-option">
+              <input
+                type="radio"
+                name="chat-range-mode"
+                checked={rangeMode === 'custom'}
+                onChange={() => setRangeMode('custom')}
+              />
+              自定义
+            </label>
+            {rangeMode === 'custom' && (
+              <span className="chat-range-custom">
+                <input
+                  className="chat-range-input"
+                  value={customStartText}
+                  placeholder="mm:ss"
+                  onChange={(e) => setCustomStartText(e.target.value)}
+                />
+                <span>–</span>
+                <input
+                  className="chat-range-input"
+                  value={customEndText}
+                  placeholder="mm:ss"
+                  onChange={(e) => setCustomEndText(e.target.value)}
+                />
+              </span>
+            )}
+          </div>
+          <span className="chat-range-current">
+            {formatMmSs(displayRange[0])}-{formatMmSs(displayRange[1])}
+          </span>
+
+          {personaLine && (
+            <div className="chat-persona-bar">
+              <span>{personaLine}</span>
+              {props.onRefreshPersona && (
+                <button
+                  type="button"
+                  className="btn chat-persona-refresh"
+                  disabled={refreshingPersona}
+                  onClick={() => {
+                    if (refreshingPersona) return;
+                    // 二次点击展开补充输入：结合视频内容与用户说明综合判定
+                    setPersonaHintOpen((v) => !v);
+                  }}
+                >
+                  {refreshingPersona ? '重判中…' : '重判角色'}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="chat-toolbar-right">
+            <ModelPicker onOpenSettings={props.onOpenSettings} />
+          </div>
+        </div>
+
+        {personaHintOpen && props.onRefreshPersona && (
+          <div className="chat-persona-hint">
+            <input
+              className="chat-persona-hint-input"
+              value={personaHintText}
+              placeholder="补充你期望的角色（如：以考研数学老师的身份，重点讲解题套路）…可留空直接重判"
+              onChange={(e) => setPersonaHintText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRefreshPersona(personaHintText);
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={refreshingPersona}
+              onClick={() => handleRefreshPersona(personaHintText)}
+            >
+              {refreshingPersona ? '重判中…' : '确认重判'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setPersonaHintOpen(false);
+                setPersonaHintText('');
+              }}
+            >
+              取消
+            </button>
+          </div>
+        )}
+
+        <GenerationBanner module="qa" />
       </div>
     </div>
   );

@@ -172,7 +172,7 @@ describe('ChatTab renderToString 冒烟', () => {
     expect(html).toContain('播放位置±30s');
     expect(html).toContain('当前整章');
     expect(html).toContain('自定义');
-    expect(html).toContain('当前区间');
+    expect(html).toContain('chat-range-current'); // composer 重排后当前区间仅显示时间
     expect(html).toContain('输入问题');
   });
 });

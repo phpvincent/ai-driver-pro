@@ -81,12 +81,14 @@ describe('ChatTab 上传入口渲染', () => {
   it('模型支持多模态：显示图片按钮与粘贴提示', () => {
     const html = renderToString(createElement(ChatTab, { videoId: 'BV1', modelReady: true, visionReady: true, explain: async () => ({}) as never }));
     expect(html).toContain('chat-upload-btn');
-    expect(html).toContain('粘贴 / 拖入题目截图');
+    expect(html).toContain('附件');
+    expect(html).toContain('可粘贴截图或拖入代码文件');
   });
   it('不支持多模态：按钮仍在但提示需切换模型', () => {
     const html = renderToString(createElement(ChatTab, { videoId: 'BV1', modelReady: true, visionReady: false, explain: async () => ({}) as never }));
-    expect(html).toContain('当前模型不支持图片');
-    expect(html).not.toContain('粘贴 / 拖入题目截图');
+    // 文本附件任何模型可用：按钮无多模态门槛；图片不支持在添加时提示
+    expect(html).toContain('附件');
+    expect(html).toContain('可拖入代码 / 笔记文件');
   });
 });
 

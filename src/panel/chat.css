@@ -347,3 +347,163 @@
 .chat-range-option:hover {
   color: var(--accent, #165dff);
 }
+
+/* ===========================================================================
+   Composer 卡片（2026-10-12 用户反馈：输入区布局乱，重排为统一卡片）
+   结构：附件条 → 输入行 → 工具行（区间 | 当前区间 | 角色 | 模型）
+   =========================================================================== */
+
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(31, 35, 41, 0.05);
+}
+
+/* 输入行：无边框（卡片即容器），附件钮与发送钮贴两端 */
+.chat-composer .chat-input-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.chat-composer .chat-input {
+  background: var(--bg, #f7f8fa);
+  border-radius: 10px;
+}
+
+/* 工具行：一行收纳区间选项 / 当前区间 / 角色条 / 模型选择 */
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.chat-composer .chat-range-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  background: var(--bg, #f7f8fa);
+  border-radius: 8px;
+}
+
+.chat-composer .chat-range-option {
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary, #4e5969);
+  transition: background 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+
+.chat-composer .chat-range-option:has(input:checked) {
+  background: var(--surface, #fff);
+  color: var(--accent, #165dff);
+  box-shadow: 0 1px 3px rgba(31, 35, 41, 0.08);
+}
+
+.chat-composer .chat-range-current {
+  color: var(--text-tertiary, #86909c);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 角色条：轻量 chip 化（去掉旧 KNOWLEDGE_HINT_STYLE 的底色由内联覆盖，这里以类为准） */
+.chat-composer .chat-persona-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 3px 10px;
+  background: var(--accent-soft, #e8f3ff);
+  border-radius: 999px;
+  color: var(--text-secondary, #4e5969);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.chat-composer .chat-persona-bar > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-composer .chat-persona-refresh {
+  padding: 1px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.chat-toolbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+/* 重判角色补充输入行 */
+.chat-persona-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--accent-soft, #e8f3ff);
+  border-radius: 10px;
+}
+
+.chat-persona-hint-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.chat-persona-hint-input:focus {
+  border-color: var(--accent, #165dff);
+  box-shadow: var(--ring, 0 0 0 3px rgba(22, 93, 255, 0.14));
+}
+
+/* 文本附件 chip */
+.chat-upload-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg, #f7f8fa);
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 8px;
+  position: relative;
+  max-width: 160px;
+}
+
+.chat-upload-text-name {
+  font-size: 11px;
+  color: var(--text-secondary, #4e5969);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-upload-text .chat-upload-remove {
+  position: static;
+  flex-shrink: 0;
+}
