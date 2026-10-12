@@ -103,7 +103,12 @@ export function buildPersonaPrompt(args: {
   lines.push(CUE_MATERIAL_END);
   const hint = (args.userHint ?? '').trim();
   if (hint.length > 0) {
-    lines.push('', '用户补充的角色期望（与上面素材综合判断，用户意图优先）：', hint.slice(0, 500));
+    lines.push(
+      '',
+      '=== 用户指定的角色期望（最高优先级：role 以此为唯一依据，即使不是老师/专家称谓也原样输出；expertise/style 仍结合素材填写）===',
+      hint.slice(0, 500),
+      '=== 用户指定结束 ===',
+    );
   }
   lines.push('', '请判断以什么类别的老师/专家身份讲解这门内容最合适，只输出严格 JSON。');
   return {
