@@ -105,7 +105,7 @@ export function buildPersonaPrompt(args: {
   if (hint.length > 0) {
     lines.push(
       '',
-      '=== 用户指定的角色期望（最高优先级：role 以此为唯一依据，即使不是老师/专家称谓也原样输出；expertise/style 仍结合素材填写）===',
+      '=== 用户指定的角色期望（role 以此为主、其余素材为辅：保留该身份方向，可结合课程内容适度润色；expertise/style 仍结合素材填写）===',
       hint.slice(0, 500),
       '=== 用户指定结束 ===',
     );
