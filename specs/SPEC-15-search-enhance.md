@@ -19,6 +19,7 @@
 - **Wikipedia 中文**：MediaWiki action=query&list=search（免 Key，srlimit=2，剥 HTML 标签）
 - **设置页**：搜索增强（可选）独立区段：密码输入 + 独立「保存」与「测试连接」按钮（2026-10-13 三轮：从 Obsidian 区段拆出防误点；测试连接用当前表单 Key 发一次真实检索，消耗 1 次额度）+ 博查开放平台链接（open.bochaai.com/api-keys，API Key 管理）+ 免费额度领取链接（open.bochaai.com/package/purchase，微信扫码注册免费领 1000 次试用包，无需信用卡）+ 获取步骤提示
 - 端点全部来自 config 常量（红线 9）；检索内容仍受 webContextMaxChars 预算（红线 3）
+- 可观测性（2026-10-13 五轮）：检索请求（博查/Wikipedia/DDG）写入 LLM 交互日志（label `web-search`，不设 inputTokens 故不进费用汇总）；explain 两次 Schema 校验失败经 onValidationError 回调补一条 ok=false 的 qa 日志（请求本身 HTTP 成功，chatCompletion 只记 ok=true，不补则日志"看不到失败原因"）；referencedTimestamps 上限 6→12（检索增强后素材更密，紧上限导致整次回答失败，segment-qa.md 0.3.1）
 
 ## 3. 验收
 
@@ -27,3 +28,4 @@
 - [B2] 配置博查 Key 后：时效性问题（如"xx 最新版本"）回答质量明显提升，来源区显示网页结果
 - [B3] 课内有依据的问题（问章节内容）不再发起外部请求（Network 面板无 wikipedia/tavily）
 - [B4] 设置 → 搜索增强：「购买资源包」链接可点开（open.bochaai.com/package/purchase）；粘贴 Key 后点「测试连接」显示连接成功（消耗 1 次额度）；空 Key 点测试有提示
+- [B5] 问答触发检索时 LLM 日志出现 label 为 `web-search` 的条目（bocha/wikipedia，含检索词与结果标题）；Schema 校验两次失败时日志出现 ok=false 的 qa 条目（错误详情可见）；referencedTimestamps 上限放宽后不再因「Too big: <=6 items」整次失败
