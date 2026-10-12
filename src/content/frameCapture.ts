@@ -127,6 +127,38 @@ export function toBase64(dataUrl: string): string {
   return /^[A-Za-z0-9+/=\s]+$/.test(dataUrl) ? dataUrl : '';
 }
 
+// ---------------------------------------------------------------------------
+// Canvas 复用（2026-10-12 性能修复）：此前每帧/每采样点新建 canvas + 2D
+// context——一次扫描 200 点 = 400 个 context，多次生成累积导致浏览器
+// canvas 上下文暴涨、页面卡顿。改为模块级懒创建、跨调用复用（重设
+// width/height 即自动清空画布，语义与新建等价）。
+// ---------------------------------------------------------------------------
+
+/** 按尺寸获取（复用的）画布与上下文；环境无 document 返回 null */
+function reusableCanvas(
+  holder: { canvas: HTMLCanvasElement | null },
+  width: number,
+  height: number,
+  opts?: CanvasRenderingContext2DSettings,
+): { ctx: CanvasRenderingContext2D } | null {
+  if (typeof document === 'undefined') return null;
+  // 复用前提：画布属于当前 document（真实浏览器同一 document 恒复用；
+  // 测试环境每个 fake document 不同 → 自动重建，行为可测）
+  if (!holder.canvas || holder.canvas.ownerDocument !== (document as unknown as object)) {
+    holder.canvas = document.createElement('canvas');
+  }
+  const canvas = holder.canvas;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const ctx = canvas.getContext('2d', opts);
+  return ctx ? { ctx } : null;
+}
+
+const sharedDrawCanvas: { canvas: HTMLCanvasElement | null } = { canvas: null };
+const sharedTinyCanvas: { canvas: HTMLCanvasElement | null } = { canvas: null };
+const sharedThumbCanvas: { canvas: HTMLCanvasElement | null } = { canvas: null };
+const sharedScanCanvas: { canvas: HTMLCanvasElement | null } = { canvas: null };
+
 /** 浏览器默认绘制：canvas 缩放绘制 + JPEG 导出 */
 function defaultDrawToDataUrl(
   video: HTMLVideoElementLike,
@@ -134,13 +166,10 @@ function defaultDrawToDataUrl(
   height: number,
   quality: number,
 ): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('canvas 2d context 不可用');
-  ctx.drawImage(video as unknown as CanvasImageSource, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', quality);
+  const c = reusableCanvas(sharedDrawCanvas, width, height);
+  if (!c) throw new Error('canvas 2d context 不可用');
+  c.ctx.drawImage(video as unknown as CanvasImageSource, 0, 0, width, height);
+  return sharedDrawCanvas.canvas!.toDataURL('image/jpeg', quality);
 }
 
 /** 浏览器默认：9×8 采样算 dHash + 160px 缩略图（失败返回 null） */
@@ -148,21 +177,17 @@ function defaultDescribeFrame(video: HTMLVideoElementLike): { dhash: string; thu
   if (typeof document === 'undefined') return null;
   try {
     const src = video as unknown as CanvasImageSource;
-    const tiny = document.createElement('canvas');
-    tiny.width = DHASH_W;
-    tiny.height = DHASH_H;
-    const tctx = tiny.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-    if (!tctx) return null;
-    tctx.drawImage(src, 0, 0, DHASH_W, DHASH_H);
-    const dhash = dhashFromGray(grayFromRgba(tctx.getImageData(0, 0, DHASH_W, DHASH_H).data));
+    const tiny = reusableCanvas(sharedTinyCanvas, DHASH_W, DHASH_H, {
+      willReadFrequently: true,
+    } as CanvasRenderingContext2DSettings);
+    if (!tiny) return null;
+    tiny.ctx.drawImage(src, 0, 0, DHASH_W, DHASH_H);
+    const dhash = dhashFromGray(grayFromRgba(tiny.ctx.getImageData(0, 0, DHASH_W, DHASH_H).data));
     const size = computeCanvasSize(video.videoWidth, video.videoHeight, THUMB_SIZE);
-    const thumb = document.createElement('canvas');
-    thumb.width = size.width;
-    thumb.height = size.height;
-    const thctx = thumb.getContext('2d');
-    if (!thctx) return { dhash, thumbBase64: '' };
-    thctx.drawImage(src, 0, 0, size.width, size.height);
-    return { dhash, thumbBase64: toBase64(thumb.toDataURL('image/jpeg', 0.6)) };
+    const thumb = reusableCanvas(sharedThumbCanvas, size.width, size.height);
+    if (!thumb) return { dhash, thumbBase64: '' };
+    thumb.ctx.drawImage(src, 0, 0, size.width, size.height);
+    return { dhash, thumbBase64: toBase64(sharedThumbCanvas.canvas!.toDataURL('image/jpeg', 0.6)) };
   } catch {
     return null;
   }
@@ -361,23 +386,21 @@ function describeScanPoint(video: HTMLVideoElementLike): { dhash: string; sharpn
   try {
     if (typeof document === 'undefined') return { dhash: '', sharpness: 0 };
     const src = video as unknown as CanvasImageSource;
-    // dHash 画布（9×8）
-    const tiny = document.createElement('canvas');
-    tiny.width = DHASH_W;
-    tiny.height = DHASH_H;
-    const tctx = tiny.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-    if (!tctx) return { dhash: '', sharpness: 0 };
-    tctx.drawImage(src, 0, 0, DHASH_W, DHASH_H);
-    const dhash = dhashFromGray(grayFromRgba(tctx.getImageData(0, 0, DHASH_W, DHASH_H).data));
-    // 清晰度画布（32×18）——亮度通道近似（RGBA 灰度化的同一口径）
-    const scan = document.createElement('canvas');
-    scan.width = SCAN_W;
-    scan.height = SCAN_H;
-    const sctx = scan.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-    if (!sctx) return { dhash, sharpness: 0 };
-    sctx.drawImage(src, 0, 0, SCAN_W, SCAN_H);
+    // dHash 画布（9×8，模块级复用）
+    const tiny = reusableCanvas(sharedTinyCanvas, DHASH_W, DHASH_H, {
+      willReadFrequently: true,
+    } as CanvasRenderingContext2DSettings);
+    if (!tiny) return { dhash: '', sharpness: 0 };
+    tiny.ctx.drawImage(src, 0, 0, DHASH_W, DHASH_H);
+    const dhash = dhashFromGray(grayFromRgba(tiny.ctx.getImageData(0, 0, DHASH_W, DHASH_H).data));
+    // 清晰度画布（32×18）——亮度通道近似（RGBA 灰度化的同一口径；模块级复用）
+    const scan = reusableCanvas(sharedScanCanvas, SCAN_W, SCAN_H, {
+      willReadFrequently: true,
+    } as CanvasRenderingContext2DSettings);
+    if (!scan) return { dhash, sharpness: 0 };
+    scan.ctx.drawImage(src, 0, 0, SCAN_W, SCAN_H);
     const sharpness = sharpnessFromGray(
-      grayFromRgba(sctx.getImageData(0, 0, SCAN_W, SCAN_H).data),
+      grayFromRgba(scan.ctx.getImageData(0, 0, SCAN_W, SCAN_H).data),
       SCAN_W,
       SCAN_H,
     );
