@@ -89,10 +89,20 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
             className="btn"
             title="下载为 SVG 图片（可直接插入文档 / 分享）"
             onClick={() => {
-              let svg = kind === 'mindmap' ? markmapSvgRef.current?.outerHTML ?? '' : mermaidSvg;
+              let svg =
+                kind === 'mindmap' && markmapSvgRef.current
+                  ? new XMLSerializer().serializeToString(markmapSvgRef.current)
+                  : mermaidSvg;
               if (!svg) return;
-              if (kind === 'mindmap' && !svg.includes('xmlns=')) {
-                svg = svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+              if (kind === 'mindmap') {
+                // 独立文件可打开的兜底：无显式尺寸时按 viewBox（或默认）补 width/height
+                const el = markmapSvgRef.current;
+                if (el && !el.getAttribute('width')) {
+                  const vb = el.getAttribute('viewBox')?.split(/[,\s]+/).map(Number);
+                  const w = vb && vb.length === 4 ? Math.ceil(vb[2]!) : 1200;
+                  const h = vb && vb.length === 4 ? Math.ceil(vb[3]!) : 800;
+                  svg = svg.replace(/<svg\b/, `<svg width="${w}" height="${h}"`);
+                }
               }
               downloadTextFile(canvasDownloadFileName(videoTitle, kind, 'svg'), svg, 'image/svg+xml');
             }}
@@ -268,10 +278,18 @@ export function MermaidCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
 
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    setScale((s) => Math.min(4, Math.max(0.2, s * (e.deltaY < 0 ? 1.1 : 0.9))));
-  };
+  // 滚轮缩放必须用原生非 passive 监听：React 的 onWheel 是 passive 的，
+  // 里面调 preventDefault 会报 "Unable to preventDefault inside passive event listener"
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const handler = (e: WheelEvent): void => {
+      e.preventDefault();
+      setScale((s) => Math.min(4, Math.max(0.2, s * (e.deltaY < 0 ? 1.1 : 0.9))));
+    };
+    host.addEventListener('wheel', handler, { passive: false });
+    return () => host.removeEventListener('wheel', handler);
+  }, []);
 
   return (
     <div className="canvas-surface mermaid-surface">
@@ -296,7 +314,6 @@ export function MermaidCanvas({
       <div
         className="mermaid-viewport"
         ref={hostRef}
-        onWheel={onWheel}
         onMouseDown={(e) => {
           dragRef.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
         }}
