@@ -119,5 +119,7 @@ SPEC-01 骨架 ─► SPEC-02 字幕瀑布 ─► SPEC-03 大纲 ─┬─► SP
 | SPEC-13 | AI 自由画布（思维导图 + 流程图） | SPEC-04 | **待验收**：freeCanvas 纯函数 + 双 prompt + markmap/mermaid 渲染 + 纠错重试（1130 例全绿，CSP 零 eval）；[人工] B1~B3 待冒烟 |
 | SPEC-14 | 引用问答+上下文增强+记忆升级 | SPEC-12 | **待验收**：persona 简述/记忆 store+滚动压缩/引用链路/胶囊 UI 完成（1143 例 +7）；[人工] B1~B4 待冒烟 |
 | SPEC-15 | 公开资料检索增强（路由+Tavily+Wikipedia） | SPEC-05 | **待验收**：shouldSearchWeb 路由/三级瀑布/设置页 Key+指引完成（1150 例 +7）；[人工] B1~B3 待冒烟 |
+| SPEC-15 | 公开资料检索增强（路由+Tavily+Wikipedia） | SPEC-05 | **待验收**：shouldSearchWeb 路由/三级瀑布/设置页 Key+指引完成（1150 例 +7）；[人工] B1~B3 待冒烟 |
 | SPEC-14 | 引用问答+上下文增强+记忆升级 | SPEC-12 | **待验收**：persona 简述/记忆 store+滚动压缩/引用链路/胶囊 UI 完成（1143 例 +7）；[人工] B1~B4 待冒烟 |
+| SPEC-15 | 公开资料检索增强（路由+Tavily+Wikipedia） | SPEC-05 | **待验收**：shouldSearchWeb 路由/三级瀑布/设置页 Key+指引完成（1150 例 +7）；[人工] B1~B3 待冒烟 |
 | SPEC-15 | 公开资料检索增强（路由+Tavily+Wikipedia） | SPEC-05 | **待验收**：shouldSearchWeb 路由/三级瀑布/设置页 Key+指引完成（1150 例 +7）；[人工] B1~B3 待冒烟 |
