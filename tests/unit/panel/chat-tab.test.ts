@@ -125,6 +125,13 @@ describe('snapTimestamps（A3：渲染前吸附到 Cue，越界丢弃）', () =>
     expect(snapTimestamps([50], [])).toEqual([]);
   });
 
+  it('距最近 Cue 超过 10s 丢弃（SPEC-15 九轮：防换算偏差跳到无关句）', () => {
+    // 50s 距 36s 差 14s、距 100s 差 50s → 都超 10s 上限，丢弃
+    expect(snapTimestamps([50], cues)).toEqual([]);
+    // 40s 距 36s 差 4s → 保留
+    expect(snapTimestamps([40], cues)).toEqual([36_000]);
+  });
+
   it('去重并升序', () => {
     expect(snapTimestamps([100, 36, 38], cues)).toEqual([36_000, 100_000]);
   });
@@ -155,6 +162,12 @@ describe('splitInlineTimestamps / hasInlineTimestamps（SPEC-15 九轮：正文�
     expect(hasInlineTimestamps('编造 [99:99]', cues)).toBe(false);
     const noCues = splitInlineTimestamps('无字幕时 [00:36] 不可点', []);
     expect(noCues.every((s) => s.ms === null)).toBe(true);
+  });
+
+  it('距最近 Cue 超过 10s 的标记同样按普通文本（与 snapTimestamps 同口径）', () => {
+    const segs = splitInlineTimestamps('偏差的标记 [00:50] 应退化。', cues);
+    expect(segs.every((s) => s.ms === null)).toBe(true); // 50s 距 36s/100s 都超 10s
+    expect(hasInlineTimestamps('偏差 [00:50]', cues)).toBe(false);
   });
 
   it('无标记正文 → 单段文本', () => {
