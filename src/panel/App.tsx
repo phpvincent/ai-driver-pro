@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MSG, type PlaybackPayload, type RuntimeMessage, type VideoInfoPayload } from '../messages';
 import type { FetchResult, ModelConfig, VideoMeta } from '../types';
 import { ChatTab } from './ChatTab';
+import type { OutlineQuote } from './explainLoader';
 import { listQaByVideo } from '../storage/db';
 import { MindmapTab } from './MindmapTab';
 import { HelpOverlay } from './HelpOverlay';
@@ -112,6 +113,8 @@ export function App() {
   const [video, setVideo] = useState<VideoInfoPayload | null>(null);
   const [playback, setPlayback] = useState<PlaybackPayload | null>(null);
   const [tab, setTab] = useState<TabKey>('subtitle');
+  /** 大纲要点引用（SPEC-14：OutlineTab → ChatTab 带上下文提问） */
+  const [qaQuote, setQaQuote] = useState<OutlineQuote | null>(null);
   /** 帮助浮层（SPEC-10 10.9） */
   const [showHelp, setShowHelp] = useState(false);
   /** 全屏单视图模式（panel.html?view=xxx）；null=普通侧栏模式 */
@@ -172,6 +175,7 @@ export function App() {
       ? { title: video.title, durationMs: video.durationMs }
       : null;
     setSections([]);
+    setQaQuote(null); // SPEC-14：换视频清引用
     setPendingTerm(null);
     setConceptMap(null);
     setConceptError(null);
@@ -385,6 +389,19 @@ export function App() {
     const flows = await generateConceptFlows(video.videoId);
     setConceptMap((prev) => (prev ? { ...prev, flows } : prev));
     return flows;
+  };
+
+  /** 大纲要点 → 带上下文提问（SPEC-14）：打包引用 + 切问答 Tab */
+  const handleAskAbout = (section: Section, bullet: { text: string; startMs: number }): void => {
+    setQaQuote({
+      sectionId: section.id,
+      sectionTitle: section.title,
+      sectionSummary: section.summary,
+      bulletText: bullet.text,
+      rangeMs: [section.startMs, section.endMs],
+      terms: section.terms,
+    });
+    setTab('chat');
   };
 
   /** 重判问答角色（用户点"重判角色"；hint = 用户补充的角色期望，综合判定） */
@@ -648,6 +665,7 @@ export function App() {
                 regenerateOne={regenerateOne}
                 modelReady={!!modelConfig?.apiKey}
                 onSaveVideoNote={handleSaveVideoNote}
+                onAskAbout={handleAskAbout}
                 onSectionsChanged={(secs) => {
                   setSections(secs);
                   if (secs.length > 0) {
@@ -688,6 +706,8 @@ export function App() {
                 visionReady={!!modelConfig?.apiKey && modelConfig?.supportsVision === true}
                 onOpenSettings={() => setShowSettings(true)}
                 explain={explainFn}
+                quote={qaQuote}
+                onClearQuote={() => setQaQuote(null)}
                 loadHistory={loadChatHistory}
                 persona={persona}
                 onRefreshPersona={handleRefreshPersona}

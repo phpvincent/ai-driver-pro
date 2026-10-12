@@ -55,6 +55,8 @@ export interface OutlineTabProps {
   onOpenSettings?: () => void;
   /** 存库入口（父 agent 接线 obsidianLoader.saveVideoNoteToObsidian）：未注入时按钮隐藏 */
   onSaveVideoNote?: () => Promise<string>;
+  /** 带上下文提问（SPEC-14）：大纲要点 → 问答 Tab 引用提问 */
+  onAskAbout?: (section: Section, bullet: { text: string; startMs: number }) => void;
 }
 
 type Phase = 'idle' | 'loading' | 'ready' | 'degraded' | 'empty';
@@ -139,6 +141,7 @@ function SectionCard({
   onSubmitRegen,
   notesState,
   onOpenEditor,
+  onAskAbout,
 }: {
   section: Section;
   active: boolean;
@@ -153,8 +156,12 @@ function SectionCard({
   notesState: NotesState;
   /** 打开笔记弹窗（二轮反馈：输入与展示走弹窗） */
   onOpenEditor: (req: NoteEditorRequest) => void;
+  /** 带上下文提问（SPEC-14：要点 → 问答引用）；未注入时菜单只显示记笔记 */
+  onAskAbout?: (section: Section, bullet: { text: string; startMs: number }) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  /** 要点操作菜单（SPEC-14）：当前展开的要点下标；null=收起 */
+  const [actionMenu, setActionMenu] = useState<number | null>(null);
   const [feedback, setFeedback] = useState('');
   /** 最近一次提交的反馈（失败重试时复用） */
   const lastFeedbackRef = useRef<string | undefined>(undefined);
@@ -219,27 +226,55 @@ function SectionCard({
               {`[${formatTimestamp(bullet.startMs)}${bullet.approximate ? '~' : ''}]`}
             </button>
             <span className="outline-bullet-text">{bullet.text}</span>
-            {/* 要点笔记入口（SPEC-09：锚点粒度 = 某条要点；弹窗输入） */}
-            <button
-              type="button"
-              className="outline-regen-btn"
-              title="给这条要点记笔记（弹窗输入）"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenEditor({
-                  mode: 'create',
-                  anchor: {
-                    kind: 'bullet',
-                    sectionId: section.id,
-                    bulletId: bulletIdOf(section.id, i),
-                    tMs: bullet.startMs,
-                  },
-                  contextLabel: `要点 · ${bullet.text}`,
-                });
-              }}
-            >
-              记
-            </button>
+            {/* 要点操作（SPEC-14 整合）：单按钮 → 迷你菜单（记笔记 / 带上下文提问） */}
+            <div className="outline-bullet-actions">
+              <button
+                type="button"
+                className="outline-regen-btn"
+                title="记笔记 / 带上下文提问"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionMenu(actionMenu === i ? null : i);
+                }}
+              >
+                ⋯
+              </button>
+              {actionMenu === i && (
+                <div className="outline-bullet-menu">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActionMenu(null);
+                      onOpenEditor({
+                        mode: 'create',
+                        anchor: {
+                          kind: 'bullet',
+                          sectionId: section.id,
+                          bulletId: bulletIdOf(section.id, i),
+                          tMs: bullet.startMs,
+                        },
+                        contextLabel: `要点 · ${bullet.text}`,
+                      });
+                    }}
+                  >
+                    📝 记一条笔记
+                  </button>
+                  {onAskAbout && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActionMenu(null);
+                        onAskAbout(section, { text: bullet.text, startMs: bullet.startMs });
+                      }}
+                    >
+                      💬 带上下文提问
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -304,6 +339,7 @@ export function OutlineSectionList({
   onSubmitRegen,
   notesState,
   onOpenEditor,
+  onAskAbout,
 }: {
   sections: Section[];
   /** 当前高亮章节 id；null 表示无 */
@@ -319,6 +355,8 @@ export function OutlineSectionList({
   notesState?: NotesState;
   /** 打开笔记弹窗（二轮反馈） */
   onOpenEditor?: (req: NoteEditorRequest) => void;
+  /** 带上下文提问（SPEC-14 透传） */
+  onAskAbout?: (section: Section, bullet: { text: string; startMs: number }) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   /** 上一次滚动到的目标，防止每次 positionMs 更新都触发滚动抖动 */
@@ -345,6 +383,7 @@ export function OutlineSectionList({
             regenerating={section.id === regeneratingId}
             errorText={regenError?.sectionId === section.id ? regenError.text : null}
             onSubmitRegen={onSubmitRegen}
+            onAskAbout={onAskAbout}
             notesState={
               notesState ?? {
                 notes: [],

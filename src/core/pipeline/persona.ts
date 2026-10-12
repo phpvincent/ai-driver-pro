@@ -27,7 +27,7 @@ export const PERSONA_EXPERTISE_ITEM_MAX = 8;
 /** style 长度上限（字） */
 export const PERSONA_STYLE_MAX = 40;
 
-/** 模型输出 Schema：{role, expertise:[...], style} */
+/** 模型输出 Schema：{role, expertise:[...], style, summary} */
 export const PersonaSchema = z.object({
   role: z.string().min(1).max(PERSONA_ROLE_MAX),
   expertise: z
@@ -35,6 +35,8 @@ export const PersonaSchema = z.object({
     .min(PERSONA_EXPERTISE_MIN)
     .max(PERSONA_EXPERTISE_MAX),
   style: z.string().min(1).max(PERSONA_STYLE_MAX),
+  /** 视频全片简述（SPEC-14：问答课程背景素材；旧模型无此字段时回落空串） */
+  summary: z.string().max(160).optional().catch(''),
 });
 
 /** 判定结果（Zod 校验后的形状） */
@@ -180,6 +182,7 @@ export function defaultPersona(
     role: '课程助教',
     expertise: ['课程内容讲解'],
     style: '结合课程进程逐步说明，先结论后展开',
+    summary: '',
     fallback: true,
     createdAt: new Date(now()).toISOString(),
   };

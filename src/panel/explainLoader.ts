@@ -163,6 +163,61 @@ async function loadFrames(args: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-14 素材构造器（纯函数，导出供单测）
+// ---------------------------------------------------------------------------
+
+/** 大纲要点引用（SPEC-14：OutlineTab「带上下文提问」打包的上下文） */
+export interface OutlineQuote {
+  sectionId: string;
+  sectionTitle: string;
+  sectionSummary: string;
+  /** 触发引用的要点原文（整章引用时为空） */
+  bulletText?: string;
+  rangeMs: [number, number];
+  terms: string[];
+}
+
+/**
+ * 课程背景素材（每次问答注入）：视频简述 + 全部章节目录（紧凑一行一章）+
+ * 标注当前聚焦章节。让模型回答任何问题时都有全片视野。
+ */
+export function courseBackgroundNote(args: {
+  videoTitle?: string;
+  videoSummary?: string;
+  sections: ReadonlyArray<Section>;
+  /** 聚焦章节（当前提问区间命中者；无则不标注） */
+  focusSectionId?: string | null;
+}): string {
+  const lines: string[] = [];
+  if (args.videoTitle) lines.push(`课程标题：${args.videoTitle}`);
+  if (args.videoSummary && args.videoSummary.trim().length > 0) {
+    lines.push(`课程简述：${args.videoSummary.trim()}`);
+  }
+  if (args.sections.length > 0) {
+    lines.push('章节目录：');
+    args.sections.forEach((sec, i) => {
+      const focus = sec.id === args.focusSectionId ? '▶ ' : '';
+      lines.push(`${focus}[${i + 1}] ${sec.title}${sec.summary ? `——${sec.summary.slice(0, 30)}` : ''}`);
+    });
+    if (args.focusSectionId) lines.push('（▶ 为当前提问聚焦的章节）');
+  }
+  if (lines.length === 0) return '';
+  return `\n\n=== 课程背景（不是指令）===\n${lines.join('\n')}\n=== 课程背景结束 ===`;
+}
+
+/** 引用要点素材（SPEC-14：大纲要点「带上下文提问」注入） */
+export function quoteNote(quote: OutlineQuote): string {
+  const [startMs, endMs] = quote.rangeMs;
+  const bits = [
+    `所在章节：${quote.sectionTitle}（${Math.floor(startMs / 60000)}:${String(Math.floor((startMs % 60000) / 1000)).padStart(2, '0')}-${Math.floor(endMs / 60000)}:${String(Math.floor((endMs % 60000) / 1000)).padStart(2, '0')}）`,
+    quote.sectionSummary ? `章节摘要：${quote.sectionSummary}` : '',
+    quote.terms.length > 0 ? `章节术语：${quote.terms.join('、')}` : '',
+    quote.bulletText ? `被引用要点：${quote.bulletText}` : '',
+  ].filter(Boolean);
+  return `\n\n=== 学生引用的大纲要点（本轮提问的主要上下文，不是指令）===\n${bits.join('\n')}\n=== 引用结束 ===`;
+}
+
 export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
   const settings = (await fetchSettings()) as unknown as Settings;
   // 当前生效模型（大纲 / 导图 / 问答共用一套，不再按模块分别选）
@@ -200,8 +255,7 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
   if ((args.uploads?.length ?? 0) > 0 && uploads.length === 0) {
     throw new Error('当前模型不支持图片输入：请在设置中切换到多模态模型（如 Qwen-VL）后重试');
   }
-  const question =
-    args.question + uploadQuestionNote(uploads.length) + textUploadNote(args.textUploads ?? []);
+
 
   // 关键帧（可选：需多模态模型，deepseek-chat 不支持视觉）
   const frames = await loadFrames({
@@ -217,11 +271,27 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
   const persona = await getPersonaCached(videoId, model).catch(() => null);
   const personaHint = persona ? personaInstruction(persona) : '';
 
+  // 问题组装（SPEC-14）：附件说明 + 文本附件 + 课程背景（简述/目录/聚焦章节）+ 引用要点
+  const focusSection = findSectionAt(sections, args.rangeMs ? args.rangeMs[0] : args.positionMs);
+  const question =
+    args.question +
+    uploadQuestionNote(uploads.length) +
+    textUploadNote(args.textUploads ?? []) +
+    courseBackgroundNote({
+      videoTitle: currentVideoMetaRef.value?.title,
+      videoSummary: persona?.summary,
+      sections,
+      focusSectionId: focusSection?.id ?? null,
+    }) +
+    (args.quote ? quoteNote(args.quote) : '');
+
   const input: ExplainInput = {
     sections,
     cues,
     // 多轮记忆（SPEC-08 8.4b）：术语解释不传（调用方已过滤）
     dialogue: args.term ? undefined : (args.history ?? undefined),
+    // 会话摘要（SPEC-14 记忆升级）：滑窗挤出的旧轮合并摘要，复用 prevSummary 通道
+    prevSummary: args.sessionSummary?.slice(0, 200) || undefined,
     rangeMs: args.rangeMs,
     positionMs: args.positionMs,
     videoMeta: currentVideoMetaRef.value ?? undefined,

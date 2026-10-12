@@ -134,6 +134,7 @@ export async function generatePersona(args: {
       role: judged.role,
       expertise: judged.expertise,
       style: judged.style,
+      summary: judged.summary ?? '',
       createdAt: new Date().toISOString(),
     };
     // 结果落缓存（写失败不阻断返回）
