@@ -17,7 +17,7 @@ import {
   sectionWindows,
 } from '../core/vision/framePlanner';
 import { mergeFrameTargets, requestFramePlan, suggestFrameRange } from '../core/vision/llmFramePlan';
-import { buildScanTargets, refineTargets } from '../core/vision/pageCluster';
+import { buildScanTargets, interleaveScanOrder, refineTargets } from '../core/vision/pageCluster';
 import type { ScannedSample } from '../messages';
 import {
   buildStructuralCandidates,
@@ -249,8 +249,9 @@ async function scanAroundCandidates(
     const response = (await chrome.runtime.sendMessage({
       type: MSG.SCAN_FRAMES,
       payload: {
-        videoId,
-        pointsMs: points,
+        // 交错序：预算耗尽时已扫部分均匀覆盖全程（冒烟：升序导致 32 分钟视频
+        // 只精修到 20 分钟处，后段全部放弃）
+        pointsMs: interleaveScanOrder(points),
         budgetMs: VISION.refine.budgetMs,
       },
     })) as { samples?: ScannedSample[] } | null;

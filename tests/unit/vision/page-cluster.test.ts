@@ -6,6 +6,7 @@ import type { ScannedSample } from '../../../src/messages';
 import {
   buildScanTargets,
   clusterPages,
+  interleaveScanOrder,
   refineTargets,
   sharpnessFromGray,
 } from '../../../src/core/vision/pageCluster';
@@ -171,5 +172,36 @@ describe('refineTargets（簇内清晰度选帧，SPEC-11 A4）', () => {
     const samples = [s(0, A, 30), s(2000, A, 30), s(4000, A, 30)];
     const [refined] = refineTargets(samples, [2_000], { windowMs: 6_000, maxDistance: 5 });
     expect(refined).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// interleaveScanOrder（两层交错扫描序，冒烟修复：预算耗尽不得放弃后段）
+// ---------------------------------------------------------------------------
+
+describe('interleaveScanOrder（交错扫描序，SPEC-11 冒烟修复）', () => {
+  const pts = Array.from({ length: 200 }, (_, i) => i * 10_000); // 0s~1990s 均匀点
+
+  it('偶数下标先扫（前一半执行即覆盖全时间轴首尾）', () => {
+    const ordered = interleaveScanOrder(pts);
+    const half = ordered.slice(0, 100); // 预算只够一半
+    expect(Math.min(...half)).toBe(0); // 首点仍在
+    expect(Math.max(...half)).toBe(pts[198]!); // 末段仍被覆盖（1980s）
+    // 时间轴四分位都有覆盖
+    for (const q of [0.25, 0.5, 0.75]) {
+      const t = q * pts[pts.length - 1]!;
+      expect(half.some((p) => Math.abs(p - t) <= 20_000)).toBe(true);
+    }
+  });
+
+  it('全量执行 = 原集合不变（仅顺序变化）', () => {
+    const ordered = interleaveScanOrder(pts);
+    expect([...ordered].sort((a, b) => a - b)).toEqual(pts);
+  });
+
+  it('确定性：同输入同输出；≤2 点恒等', () => {
+    expect(interleaveScanOrder(pts)).toEqual(interleaveScanOrder(pts));
+    expect(interleaveScanOrder([100])).toEqual([100]);
+    expect(interleaveScanOrder([100, 200])).toEqual([100, 200]);
   });
 });

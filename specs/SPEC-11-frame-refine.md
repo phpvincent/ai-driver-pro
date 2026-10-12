@@ -74,3 +74,4 @@
 |---|---|---|---|---|
 | 10-12 | 父 agent | 起草（依据抽帧链路精读 + 大厂方案对比 + 用户拍板） | — | 本提交 |
 | 10-12 | 父 agent | 全量施工：① `core/vision/pageCluster.ts` 纯函数（buildScanTargets 均匀抽稀含首尾 / clusterPages 顺序聚类-隔页不合并 / sharpnessFromGray 拉普拉斯方差 / refineTargets 页内选最清晰并列取最早）② content `scanFrames` 轻量扫描（只算 9×8 dHash + 32×18 清晰度，不导 JPEG；时间预算 graceful partial；describeScan 注入供单测）+ `SCAN_FRAMES` 消息与 background 转发 ③ framesClient 接线：**扫描围绕结构候选**（调用前已知，LLM 按编号从候选挑——覆盖一切可能选择）与 LLM 规划**并行**，返回后 refineWithScan，guard/minGap 闸门在精修之后兜底 ④ VISION.refine 常量（window 6s/step 2s/budget 25s/max 200） | 1104 例全绿（+23：page-cluster 20 例 + scanFrames 4 例）；扫描全失败时 targets 恒等（行为兼容） | 本提交 |
+| 10-12 | 父 agent | **冒烟修复**：用户实测 32 分钟视频扫描到 ~20min 停止——采样点升序执行 + 25s 预算耗尽 = 放弃整条时间轴后半段。修复 = interleaveScanOrder 两层交错序（先全部偶数下标=一遍覆盖全程，再奇数加密），预算只影响精修密度不影响覆盖范围；确定性保持 | 3 例新测试（前半执行覆盖首尾与四分位/全量=原集合/确定性）；1107 例全绿 | 本提交 |
