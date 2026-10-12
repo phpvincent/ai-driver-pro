@@ -10,7 +10,7 @@
  * - 全程不 throw：非 2xx / 网络失败 / 超时 / 解析失败一律返回空结果。
  *   fetch 由调用方注入（SearchFetch），本模块零 chrome.* 依赖。
  *
- * 为什么不用 Tavily / Serper：那些都要用户注册拿 Key，与"用户无感知"矛盾；
+ * （SPEC-15 起主检索为博查 Bocha + Wikipedia，DDG 降为兜底；原始说明：）注册制检索与"用户无感知"矛盾；
  * DuckDuckGo Instant Answer 免鉴权、返回 JSON、对"课程外事实"（人物、版本、规范、
  * 外部工具）常能给出 Wikipedia 摘要，足够 MVP 用。覆盖率不足时宁可空手，也不编造。
  */
@@ -195,33 +195,40 @@ export function buildWebContext(
 }
 
 // ---------------------------------------------------------------------------
-// SPEC-15 搜索增强：Tavily（用户 Key）+ Wikipedia 中文（免 Key）
-// 三级瀑布由 loader 层编排：Tavily → Wikipedia → DuckDuckGo（本文件既有）
+// SPEC-15 搜索增强：博查 Bocha（用户 Key）+ Wikipedia 中文（免 Key）
+// 三级瀑布由 loader 层编排：Bocha → Wikipedia → DuckDuckGo（本文件既有）
 // ---------------------------------------------------------------------------
 
-import { TAVILY, WIKIPEDIA } from '../../config';
+import { BOCHA, WIKIPEDIA } from '../../config';
 
-/** Tavily 响应解析（纯函数，导出供单测）：results[].{title,url,content} */
-export function parseTavilyResults(json: unknown, maxResults: number): WebSnippet[] {
-  const root = (json ?? {}) as { results?: unknown };
-  if (!Array.isArray(root.results)) return [];
+/** 博查响应解析（纯函数，导出供单测）：webPages.value[].{name,url,snippet,summary} */
+export function parseBochaResults(json: unknown, maxResults: number): WebSnippet[] {
+  const root = (json ?? {}) as { webPages?: { value?: unknown } };
+  const list = root.webPages?.value;
+  if (!Array.isArray(list)) return [];
   const out: WebSnippet[] = [];
-  for (const r of root.results) {
+  for (const r of list) {
     if (out.length >= maxResults) break;
-    const item = (r ?? {}) as { title?: unknown; url?: unknown; content?: unknown };
-    const title = typeof item.title === 'string' ? item.title.trim() : '';
+    const item = (r ?? {}) as { name?: unknown; url?: unknown; snippet?: unknown; summary?: unknown };
+    const title = typeof item.name === 'string' ? item.name.trim() : '';
     const url = typeof item.url === 'string' ? item.url.trim() : '';
-    const snippet = typeof item.content === 'string' ? item.content.trim() : '';
-    if (url && snippet) out.push({ title: title || url, url, snippet: snippet.slice(0, 400) });
+    const snippetRaw =
+      typeof item.summary === 'string' && item.summary.trim().length > 0
+        ? item.summary.trim()
+        : typeof item.snippet === 'string'
+          ? item.snippet.trim()
+          : '';
+    if (url && snippetRaw) out.push({ title: title || url, url, snippet: snippetRaw.slice(0, 400) });
   }
   return out;
 }
 
 /**
- * Tavily 搜索（用户 Key，SPEC-15）：POST /search，LLM 专用——返回已提取的
- * 网页正文片段。任何失败（Key 无效/网络/超时/解析）返回空数组，由瀑布下层兜底。
+ * 博查搜索（用户 Key，SPEC-15 国内替代）：POST /v1/web-search，
+ * 返回结构化网页结果（name/url/snippet/summary，中文质量好、国内直连稳定）。
+ * 任何失败（Key 无效/网络/超时/解析）返回空数组，由瀑布下层兜底。
  */
-export async function searchTavily(
+export async function searchBocha(
   query: string,
   apiKey: string,
   fetchFn: SearchFetch,
@@ -230,27 +237,22 @@ export async function searchTavily(
   const key = apiKey.trim();
   const q = (query ?? '').trim();
   if (!key || !q) return [];
-  const maxResults = opts.maxResults ?? TAVILY.defaultMaxResults;
-  const timeoutMs = opts.timeoutMs ?? TAVILY.requestTimeoutMs;
+  const maxResults = opts.maxResults ?? BOCHA.defaultMaxResults;
+  const timeoutMs = opts.timeoutMs ?? BOCHA.requestTimeoutMs;
   try {
     const res = await fetchWithTimeout(
       fetchFn,
-      TAVILY.endpoint,
+      BOCHA.endpoint,
       timeoutMs,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          query: q,
-          max_results: maxResults,
-          search_depth: 'basic',
-          include_answer: false,
-        }),
+        body: JSON.stringify({ query: q, count: maxResults, summary: true }),
       },
     );
     if (!res || res.ok !== true) return [];
     const json: unknown = await res.json();
-    return parseTavilyResults(json, maxResults);
+    return parseBochaResults(json, maxResults);
   } catch {
     return [];
   }

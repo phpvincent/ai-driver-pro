@@ -35,7 +35,7 @@ import { personaInstruction } from '../core/pipeline/persona';
 import { getPersonaCached } from './personaLoader';
 import {
   buildWebContext,
-  searchTavily,
+  searchBocha,
   searchWeb,
   searchWikipedia,
   trimSnippets,
@@ -132,22 +132,22 @@ export function shouldSearchWeb(args: {
 }
 
 /**
- * 公开资料三级瀑布（SPEC-15）：Tavily（用户 Key）→ Wikipedia 中文 → DuckDuckGo。
- * 任一层拿到结果即止；Tavily 与 Wikipedia 可并行（互不依赖），
+ * 公开资料三级瀑布（SPEC-15）：博查 Bocha（用户 Key）→ Wikipedia 中文 → DuckDuckGo。
+ * 任一层拿到结果即止；博查与 Wikipedia 可并行（互不依赖），
  * 两者都空再走 DDG 兜底。全程静默降级。
  */
 async function loadWeb(
   query: string,
-  tavilyKey?: string,
+  bochaKey?: string,
 ): Promise<{ snippets: WebSnippet[]; context: string }> {
   const fetchFn = (url: string, init?: RequestInit) => fetch(url, init);
   try {
-    if (tavilyKey && tavilyKey.trim().length > 0) {
-      const [tavily, wiki] = await Promise.all([
-        searchTavily(query, tavilyKey, fetchFn as never),
+    if (bochaKey && bochaKey.trim().length > 0) {
+      const [bocha, wiki] = await Promise.all([
+        searchBocha(query, bochaKey, fetchFn as never),
         searchWikipedia(query, fetchFn as never),
       ]);
-      const merged = [...tavily, ...wiki];
+      const merged = [...bocha, ...wiki];
       if (merged.length > 0) {
         const snippets = trimSnippets(merged, CONTEXT.webContextMaxChars);
         return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
@@ -301,7 +301,7 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     enabled: knowledgeSearch,
   });
 
-  // 公开资料检索（SPEC-15：路由判断 → Tavily/Wikipedia/DDG 三级瀑布）
+  // 公开资料检索（SPEC-15：路由判断 → 博查/Wikipedia/DDG 三级瀑布）
   const needWeb = shouldSearchWeb({
     term: args.term,
     question: args.question,
@@ -309,7 +309,7 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     hasCues: cues.length > 0,
   });
   const web = needWeb
-    ? await loadWeb(args.term ?? args.question, settings.tavilyApiKey)
+    ? await loadWeb(args.term ?? args.question, settings.bochaApiKey)
     : { snippets: [] as WebSnippet[], context: '' };
   // 学生上传的图：只要模型支持图像就发（与抽帧开关无关——用户显式上传，意图明确）
   const uploads = modelSupportsVisionOf(model, settings) ? (args.uploads ?? []) : [];

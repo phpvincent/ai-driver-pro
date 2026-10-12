@@ -1,11 +1,11 @@
 /**
- * SPEC-15 单测：检索路由 + Tavily/Wikipedia 解析器。
+ * SPEC-15 单测：检索路由 + 博查/Wikipedia 解析器。
  */
 import { describe, expect, it } from 'vitest';
 import { shouldSearchWeb } from '../../../src/panel/explainLoader';
 import {
   buildWikipediaUrl,
-  parseTavilyResults,
+  parseBochaResults,
   parseWikipediaResults,
 } from '../../../src/core/knowledge/webSearch';
 
@@ -26,27 +26,29 @@ describe('shouldSearchWeb（检索路由，SPEC-15）', () => {
   });
 });
 
-describe('parseTavilyResults', () => {
-  it('提取 results[].{title,url,content}；缺 url/content 丢弃；截 400 字', () => {
+describe('parseBochaResults（博查响应：webPages.value[]）', () => {
+  it('提取 {name,url,snippet,summary}；summary 优先；缺 url/摘要丢弃；截 400 字', () => {
     const json = {
-      results: [
-        { title: 'T1', url: 'https://a.com', content: 'C1' },
-        { title: '', url: 'https://b.com', content: 'C2' },
-        { title: 'T3', content: 'no url' },
-        { title: 'T4', url: 'https://d.com', content: 'x'.repeat(500) },
-      ],
+      webPages: {
+        value: [
+          { name: 'T1', url: 'https://a.com', snippet: 'S1', summary: '摘要优先' },
+          { name: '', url: 'https://b.com', snippet: 'S2' },
+          { name: 'T3', snippet: 'no url' },
+          { name: 'T4', url: 'https://d.com', snippet: 'x'.repeat(500) },
+        ],
+      },
     };
-    const out = parseTavilyResults(json, 5);
+    const out = parseBochaResults(json, 5);
     expect(out).toHaveLength(3);
-    expect(out[0]).toEqual({ title: 'T1', url: 'https://a.com', snippet: 'C1' });
+    expect(out[0]).toEqual({ title: 'T1', url: 'https://a.com', snippet: '摘要优先' });
     expect(out[1]!.title).toBe('https://b.com'); // 无标题回落 url
     expect(out[2]!.snippet.length).toBe(400); // 截断
-    expect(parseTavilyResults({}, 5)).toEqual([]);
-    expect(parseTavilyResults({ results: 'oops' }, 5)).toEqual([]);
+    expect(parseBochaResults({}, 5)).toEqual([]);
+    expect(parseBochaResults({ webPages: { value: 'oops' } }, 5)).toEqual([]);
   });
   it('maxResults 上限生效', () => {
-    const json = { results: Array.from({ length: 8 }, (_, i) => ({ title: `T${i}`, url: `https://${i}.com`, content: 'C' })) };
-    expect(parseTavilyResults(json, 3)).toHaveLength(3);
+    const json = { webPages: { value: Array.from({ length: 8 }, (_, i) => ({ name: `T${i}`, url: `https://${i}.com`, snippet: 'C' })) } };
+    expect(parseBochaResults(json, 3)).toHaveLength(3);
   });
 });
 

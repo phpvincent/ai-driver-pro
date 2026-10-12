@@ -336,8 +336,8 @@ export interface Settings {
   webSearchEnabled?: boolean;
   /** 问答时检索个人知识库（默认开启） */
   knowledgeSearch?: boolean;
-  /** Tavily 搜索增强 API Key（SPEC-15：可选；配置后公开资料检索升级为 LLM 专用搜索） */
-  tavilyApiKey?: string;
+  /** 博查搜索增强 API Key（SPEC-15：可选；国内方案，微信注册免费领 1000 次） */
+  bochaApiKey?: string;
   /** Obsidian 配置 */
   obsidian?: { baseUrl?: string; apiKey?: string; rootDir?: string };
 }

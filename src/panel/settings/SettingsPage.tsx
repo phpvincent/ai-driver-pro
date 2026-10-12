@@ -22,7 +22,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { chatCompletion } from '../../core/harness/modelClient';
-import { TAVILY, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
+import { BOCHA, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
 import { testObsidianConnection } from '../obsidianLoader';
@@ -170,8 +170,8 @@ export function SettingsPage({
   const [obsidian, setObsidian] = useState<ObsidianFormState>(INITIAL_OBSIDIAN_FORM);
   /** 问答时检索个人知识库（默认开启，与 Obsidian 配置一起保存） */
   const [knowledgeSearch, setKnowledgeSearch] = useState<boolean>(true);
-  /** Tavily 搜索增强 Key（SPEC-15：可选；配置后公开资料升级 LLM 专用搜索） */
-  const [tavilyKey, setTavilyKey] = useState('');
+  /** 博查搜索增强 Key（SPEC-15：国内方案，可选；配置后公开资料升级为专业搜索） */
+  const [bochaKey, setBochaKey] = useState('');
   const [obsidianFeedback, setObsidianFeedback] = useState<Feedback>(null);
   const [obsidianTesting, setObsidianTesting] = useState(false);
   const [obsidianSaving, setObsidianSaving] = useState(false);
@@ -261,7 +261,7 @@ export function SettingsPage({
           enabled: obs.enabled !== false,
         });
         setKnowledgeSearch(stored.knowledgeSearch !== false);
-        setTavilyKey(typeof stored.tavilyApiKey === 'string' ? stored.tavilyApiKey : '');
+        setBochaKey(typeof stored.bochaApiKey === 'string' ? stored.bochaApiKey : '');
         setForm(
           configToForm({
             baseUrl: merged.baseUrl ?? '',
@@ -497,7 +497,7 @@ export function SettingsPage({
       enabled: obsidian.enabled,
     };
     // 与 Obsidian 配置一起保存 knowledgeSearch 开关（整份 settings 合并写，不动其他分区）
-    savePatch({ obsidian: cfg, knowledgeSearch, tavilyApiKey: tavilyKey.trim() })
+    savePatch({ obsidian: cfg, knowledgeSearch, bochaApiKey: bochaKey.trim() })
       .then((ok) => {
         setObsidianFeedback(
           ok ? { kind: 'ok', text: '已保存' } : { kind: 'error', text: '保存失败：background 未确认' },
@@ -867,20 +867,21 @@ export function SettingsPage({
           <span>搜索增强（可选）</span>
           <input
             type="password"
-            value={tavilyKey}
-            placeholder="Tavily API Key（可选）"
+            value={bochaKey}
+            placeholder="博查 API Key（可选）"
             onChange={(e) => {
-              setTavilyKey(e.target.value);
+              setBochaKey(e.target.value);
               setObsidianFeedback(null);
             }}
           />
           <span className="settings-hint">
-            配置后问答的公开资料检索升级为 LLM 专用搜索（覆盖新闻 / 时效内容，质量大幅提升）；
-            免费档每月 1000 次足够学习使用。到
-            <a href={TAVILY.consoleUrl} target="_blank" rel="noreferrer">
-              Tavily 官网（app.tavily.com）
+            配置后问答的公开资料检索升级为专业网页搜索（新闻 / 时效内容覆盖好，中文质量佳）。
+            到
+            <a href={BOCHA.consoleUrl} target="_blank" rel="noreferrer">
+              博查开放平台（open.bochaai.com）
             </a>
-            注册（免费、无需信用卡）→ Home 页 API Keys 处复制粘贴到这里，随上面「保存」一并生效。
+            微信扫码注册（免费，无需信用卡）→ 首页「购买资源包」领取免费的 1000 次试用包 →
+            「API KEY 管理」创建并复制 Key 粘贴到这里，随上面「保存」一并生效。
             不配置则使用内置检索（Wikipedia + DuckDuckGo）
           </span>
         </label>

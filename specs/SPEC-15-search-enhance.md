@@ -7,8 +7,9 @@
 ## 1. 用户决策（2026-10-13）
 
 - 问答前先判断"这题需要外部资料吗"（路由）再检索
-- 检索源 = Tavily API（用户 Key）+ Wikipedia 中文 API（免 Key）
-- 设置页 Key 配置处加 Tavily 官网链接与获取指引
+- 检索源 = 博查 Bocha API（用户 Key，微信注册免费领 1000 次，国内直连）+ Wikipedia 中文 API（免 Key）
+- 设置页 Key 配置处加博查开放平台链接与获取指引
+- 2026-10-13 变更：Tavily 需国际信用卡，面向国内用户不可行 → 全量替换为博查
 
 ## 2. 设计
 
@@ -16,12 +17,12 @@
 - **三级瀑布**：有 Tavily Key → Tavily + Wikipedia 并行合并；无 Key → Wikipedia；两者皆空 → DDG Instant Answer 兜底（现状）。全程静默降级不 throw
 - **Tavily**：POST /search（Bearer Key，basic depth，max 5 条，已提取正文）；失败/无 Key 静默跳过
 - **Wikipedia 中文**：MediaWiki action=query&list=search（免 Key，srlimit=2，剥 HTML 标签）
-- **设置页**：搜索增强（可选）密码输入 + 官网链接（app.tavily.com，免费 1000 次/月，无需信用卡）+ 获取步骤提示；随知识库开关一并保存
+- **设置页**：搜索增强（可选）密码输入 + 博查开放平台链接（open.bochaai.com，微信扫码注册免费领 1000 次试用包，无需信用卡）+ 获取步骤提示；随知识库开关一并保存
 - 端点全部来自 config 常量（红线 9）；检索内容仍受 webContextMaxChars 预算（红线 3）
 
 ## 3. 验收
 
 - [A] 1150 例全绿（+7：路由三态/Tavily 解析/Wikipedia 解析/URL 构造）
 - [B1] 未配 Key：概念型问题（如"类比推理是什么"）回答带 Wikipedia 来源
-- [B2] 配置 Tavily Key 后：时效性问题（如"xx 最新版本"）回答质量明显提升，来源区显示网页结果
+- [B2] 配置博查 Key 后：时效性问题（如"xx 最新版本"）回答质量明显提升，来源区显示网页结果
 - [B3] 课内有依据的问题（问章节内容）不再发起外部请求（Network 面板无 wikipedia/tavily）
