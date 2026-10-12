@@ -109,17 +109,17 @@ export const WEB_SEARCH = {
 export const WEB_SEARCH_FALLBACK_URL = 'https://duckduckgo.com/?q=';
 
 /**
- * 搜索增强（SPEC-15）：三级瀑布 = Tavily（用户 Key，LLM 专用搜索）→
+ * 搜索增强（SPEC-15，2026-10-13 改用国内方案）：三级瀑布 =
+ * 博查 Bocha（用户 Key，微信扫码注册送 1000 次，无需信用卡，国内直连）→
  * Wikipedia 中文（免 Key，概念词条）→ DuckDuckGo Instant Answer（兜底）。
  * 检索前先由模型路由判断"这题需要外部资料吗"（课内知识够就不发请求）。
  */
-export const TAVILY = {
-  endpoint: 'https://api.tavily.com/search',
-  /** 免费档 1000 次/月；超出由用户自查额度 */
+export const BOCHA = {
+  endpoint: 'https://api.bochaai.com/v1/web-search',
   requestTimeoutMs: 10_000,
   defaultMaxResults: 5,
-  /** 控制台（设置页引导链接用，红线 9：URL 唯一来源） */
-  consoleUrl: 'https://app.tavily.com/home',
+  /** 开放平台（设置页引导链接用，红线 9：URL 唯一来源） */
+  consoleUrl: 'https://open.bochaai.com/api-keys',
 } as const;
 
 export const WIKIPEDIA = {
