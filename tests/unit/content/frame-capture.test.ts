@@ -258,12 +258,12 @@ describe('captureFrames（批量 / 截断 / 单帧失败跳过）', () => {
     expect(frames).toHaveLength(10);
   });
 
-  it('超过兜底上限（48）才截断', async () => {
+  it(`超过兜底上限（${DEFAULT_MAX_FRAMES}）才截断`, async () => {
     const video = new FakeVideo();
     const { draw } = fakeDraw();
-    const targets = Array.from({ length: 60 }, (_, i) => i * 1_000);
+    const targets = Array.from({ length: DEFAULT_MAX_FRAMES + 12 }, (_, i) => i * 1_000);
     const frames = await captureFrames(video, targets, { drawToDataUrl: draw });
-    expect(frames).toHaveLength(48);
+    expect(frames).toHaveLength(DEFAULT_MAX_FRAMES);
   });
 
   it('兜底上限 ≥ 导图帧预算硬上限（否则长视频规划的帧在 content 侧被截断）', () => {

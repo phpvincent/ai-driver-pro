@@ -36,7 +36,7 @@ describe('frameBudgetFor（随时长增长 · 分段递减 · 章节兜底）', 
   it('导图帧数随时长单调增长：10 / 30 / 60 分钟', () => {
     expect(frameBudgetFor('mindmap', 10 * MIN)).toBe(14); // 600/45
     expect(frameBudgetFor('mindmap', 30 * MIN)).toBe(27); // 600/45 + 1200/90 = 13.3 + 13.3 → 27
-    expect(frameBudgetFor('mindmap', 60 * MIN)).toBe(HARD); // 14 + 33 = 47 → 夹到上限
+    expect(frameBudgetFor('mindmap', 60 * MIN)).toBe(47); // 14 + 33 = 47（护栏 48 内不再夹断）
     const series = [5, 10, 20, 30, 45, 60, 120].map((m) => frameBudgetFor('mindmap', m * MIN));
     for (let i = 1; i < series.length; i++) expect(series[i]).toBeGreaterThanOrEqual(series[i - 1]!);
   });
@@ -46,9 +46,9 @@ describe('frameBudgetFor（随时长增长 · 分段递减 · 章节兜底）', 
     expect(frameBudgetFor('mindmap', 45 * MIN)).toBeGreaterThan(30);
   });
 
-  it('知识密集加成：10 分钟密集 = 20 帧，30 分钟密集打满上限', () => {
+  it('知识密集加成：10 分钟密集 = 20 帧，30 分钟密集接近上限（护栏 48）', () => {
     expect(frameBudgetFor('mindmap', 10 * MIN, true)).toBe(20);
-    expect(frameBudgetFor('mindmap', 30 * MIN, true)).toBe(HARD);
+    expect(frameBudgetFor('mindmap', 30 * MIN, true)).toBe(40); // 20 + 20（护栏内不打满）
     for (const module of ['outline', 'mindmap', 'qa'] as const) {
       expect(frameBudgetFor(module, 12 * MIN, true)).toBeGreaterThanOrEqual(frameBudgetFor(module, 12 * MIN));
     }

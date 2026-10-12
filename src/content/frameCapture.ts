@@ -29,7 +29,7 @@ const DEFAULT_TIMEOUT_MS = 3_000;
  * 现在跟随调用方规划的帧数（见 registerFrameCaptureHandler），此处只做兜底上限。
  */
 // 必须 ≥ FRAME_PLAN.mindmap.hardMax（content 禁 import config，由单测守住两者一致）
-export const DEFAULT_MAX_FRAMES = 48;
+export const DEFAULT_MAX_FRAMES = 64;
 /** 画布尺寸下限：防退化（0 宽 / 极端宽高比抽帧得到空白图） */
 const MIN_CANVAS_SIZE = 16;
 

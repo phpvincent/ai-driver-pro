@@ -190,8 +190,12 @@ export const VISION = {
  *
  * 章节兜底：导图每章至少首尾两帧（章节演进靠首尾对照），长视频章节多，帧数自然跟着涨。
  *
- * hardMax 是**唯一的成本护栏**：导图单帧约 576 图像 token（896px），40 帧 ≈ 23k token。
- * 若所用多模态模型上下文更大、愿意多花钱，调大 hardMax 即可。
+ * hardMax 是**防失控护栏，不是质量目标**（2026-10-12 用户决策：让帧数回归视频内容驱动）：
+ * 帧数的真实决定者是内容信号——LLM frame-planning 在建议区间内按章节/字幕取舍，
+ * 密度加成与每章保底提供内容自适应；hardMax 只兜住两类失控：
+ * ① 导图单请求全量帧受模型上下文约束（48 帧 ≈ 27.6k 图像 token，128k 窗口安全）；
+ * ② 采集耗时（每帧全尺寸 JPEG 约 500ms，48 帧 ≈ 24s）。
+ * 成本已不是约束（flash 档 48 帧 ≈ 0.014 元/次）；模型上下文更大时可继续调大。
  */
 export interface FrameTier {
   /** 本段覆盖到视频的第几秒（累计） */
@@ -205,9 +209,10 @@ export const FRAME_PLAN: Record<
   { tiers: readonly FrameTier[]; min: number; hardMax: number; perSection: number }
 > = {
   outline: {
+    // 90s/帧随时长增长；32 分钟 ≈ 16 帧（每分块 1~2 帧，分块请求上下文压力小）
     tiers: [{ uptoSec: Number.POSITIVE_INFINITY, secPerFrame: 90 }],
     min: 3,
-    hardMax: 8,
+    hardMax: 16,
     perSection: 0,
   },
   mindmap: {
@@ -217,13 +222,14 @@ export const FRAME_PLAN: Record<
       { uptoSec: Number.POSITIVE_INFINITY, secPerFrame: 180 },
     ],
     min: 6,
-    hardMax: 40,
+    hardMax: 48,
     perSection: 2,
   },
   qa: {
+    // 区间聚焦（30s/帧）：问答区间小，单位密度天然最高
     tiers: [{ uptoSec: Number.POSITIVE_INFINITY, secPerFrame: 30 }],
     min: 2,
-    hardMax: 8,
+    hardMax: 12,
     perSection: 0,
   },
 };
