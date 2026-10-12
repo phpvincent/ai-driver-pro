@@ -55,9 +55,9 @@ describe('buildPersonaPrompt userHint（重判角色用户补充）', () => {
     const withHint = buildPersonaPrompt({
       title: 't', sections, cueHead: [], userHint: '以考研数学老师身份，重讲题套路',
     });
-    expect(withHint.userPrompt).toContain('用户补充的角色期望');
+    expect(withHint.userPrompt).toContain('用户指定的角色期望');
     expect(withHint.userPrompt).toContain('考研数学老师');
-    expect(withHint.userPrompt).toContain('用户意图优先');
+    expect(withHint.userPrompt).toContain('最高优先级');
   });
   it('超长 hint 截断到 500 字', () => {
     const withHint = buildPersonaPrompt({

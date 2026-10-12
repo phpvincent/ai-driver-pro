@@ -218,10 +218,10 @@ describe('人格化版本：term-explainer 0.2.0 / segment-qa 0.3.0', () => {
   });
 });
 
-describe('问答动态角色：persona.md 0.1.0', () => {
+describe('问答动态角色：persona.md 0.2.0', () => {
   it('文件头版本与 PROMPT_VERSIONS 一致（index.ts 由解析自动跟上）', () => {
-    expect(parsePromptHeader(personaMdRaw)).toEqual({ promptVersion: '0.1.0', kind: 'persona' });
-    expect(PROMPT_VERSIONS.persona).toBe('0.1.0');
+    expect(parsePromptHeader(personaMdRaw)).toEqual({ promptVersion: '0.2.0', kind: 'persona' });
+    expect(PROMPT_VERSIONS.persona).toBe('0.2.0');
   });
 
   it('?raw 内联内容与磁盘文件一致（单一事实源不失真）', () => {
