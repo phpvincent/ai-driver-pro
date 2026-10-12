@@ -15,6 +15,7 @@
 
 - **路由 shouldSearchWeb（纯函数）**：术语解释必检；含时新/外部词（最新/版本/发布/官网/新闻/价格…）必检；其余仅当知识库与字幕都无命中才检（课内无依据）。省请求、防噪音、护隐私
 - **并行检索（2026-10-13 六轮，用户决策）**：博查 + Wikipedia + DDG 三路**同时**发（原为瀑布：上层空手才轮到 DDG），组装按优先级排序 博查→Wikipedia→DDG（trimSnippets 按预算从头装，DDG 只补余量；冷门词前两级空手时 DDG 已在途不用再等一轮）。全程静默降级。
+- **DeepSeek 内置搜索第四路（2026-10-13 七轮，用户决策）**：模型为 deepseek-v4-flash 时额外走 Responses API（POST {baseUrl}/responses，tools=[{type:'web_search'}]，服务端完成搜索→注入→回答），与其他三路并行，组装优先级 博查→Wikipedia→DeepSeek→DDG。日志 label `ds-web-search`。限制：仅 v4-flash 支持（chat/completions 传 web_search 工具会 400）；黑盒注入——客户端只拿得到 open_page URL（剥 ws_call_id 尾巴）与综合回答文本，无标题/摘要列表；按 token 计费（注入 7K~17K tokens ≈ 0.2~1 分/次）。supportsDsWebSearch 精确匹配模型名（勿 includes，防不存在变体误放行）。
 - **博查**：POST /v1/web-search（Bearer Key，summary=true，max 5 条）；失败/无 Key 静默跳过。响应形状为 `{code, msg, data:{webPages:{value[]}}}`（2026-10-13 实测修正：初版误读根级 webPages 导致"测试连接"误报失败与检索静默空结果；同时校验 body.code ≠ 200 按失败处理）
 - **Wikipedia 中文**：MediaWiki action=query&list=search（免 Key，srlimit=2，剥 HTML 标签）
 - **设置页**：搜索增强（可选）独立区段：密码输入 + 独立「保存」与「测试连接」按钮（2026-10-13 三轮：从 Obsidian 区段拆出防误点；测试连接用当前表单 Key 发一次真实检索，消耗 1 次额度）+ 博查开放平台链接（open.bochaai.com/api-keys，API Key 管理）+ 免费额度领取链接（open.bochaai.com/package/purchase，微信扫码注册免费领 1000 次试用包，无需信用卡）+ 获取步骤提示
@@ -29,3 +30,4 @@
 - [B3] 课内有依据的问题（问章节内容）不再发起外部请求（Network 面板无 wikipedia/tavily）
 - [B4] 设置 → 搜索增强：「购买资源包」链接可点开（open.bochaai.com/package/purchase）；粘贴 Key 后点「测试连接」显示连接成功（消耗 1 次额度）；空 Key 点测试有提示
 - [B5] 问答触发检索时 LLM 日志出现 label 为 `web-search` 的条目（bocha/wikipedia，含检索词与结果标题）；Schema 校验两次失败时日志出现 ok=false 的 qa 条目（错误详情可见）；referencedTimestamps 上限放宽后不再因「Too big: <=6 items」整次失败
+- [B6] 模型切到 deepseek-v4-flash 后问时新问题：LLM 日志出现 `ds-web-search` 条目，来源区出现「DeepSeek 联网搜索」相关内容（open_page URL / 综合回答）；非 v4-flash 模型不出现该条目

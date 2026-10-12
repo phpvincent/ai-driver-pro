@@ -36,8 +36,10 @@ import { getPersonaCached } from './personaLoader';
 import {
   buildWebContext,
   searchBocha,
+  searchDeepSeekResponses,
   searchWeb,
   searchWikipedia,
+  supportsDsWebSearch,
   trimSnippets,
 } from '../core/knowledge/webSearch';
 import { BOCHA, CONTEXT } from '../config';
@@ -181,20 +183,25 @@ async function searchWithLog(
 }
 
 /**
- * 公开资料并行检索（SPEC-15 六轮改造）：博查 + Wikipedia + DDG 三路**同时**发，
- * 不再是"上层空手才轮到 DDG"的瀑布——冷门词前两级空手时 DDG 已在途，不用再等一轮。
- * 组装时按优先级排序：博查 → Wikipedia → DDG（DDG 噪音较高放末位；
- * trimSnippets 按字符预算从头装，天然保住高优先级、DDG 只补余量）。
- * 全程静默降级：任一路失败不影响其他两路。
+ * 公开资料并行检索（SPEC-15 六轮改造，七轮加第四路）：博查 + Wikipedia + DDG
+ * （+ DeepSeek 内置搜索，仅当模型为 deepseek-v4-flash）**同时**发。
+ * 组装优先级：博查 → Wikipedia → DeepSeek → DDG（DDG 噪音较高放末位；
+ * trimSnippets 按字符预算从头装，天然保住高优先级）。
+ * DeepSeek 内置搜索按 token 计费（注入 7K~17K tokens ≈ 0.2~1 分/次），
+ * 且来源是黑盒（只有 open_page URL 与综合回答），放 Wikipedia 之后。
+ * 全程静默降级：任一路失败不影响其他路。
  */
 async function loadWeb(
   query: string,
   bochaKey?: string,
+  dsModel?: { model: string; apiKey: string; baseUrl: string } | null,
 ): Promise<{ snippets: WebSnippet[]; context: string }> {
   const fetchFn = (url: string, init?: RequestInit) => fetch(url, init);
   try {
     const hasBocha = Boolean(bochaKey && bochaKey.trim().length > 0);
-    const [bocha, wiki, ddg] = await Promise.all([
+    const dsUsable =
+      dsModel && supportsDsWebSearch(dsModel.model) && dsModel.apiKey.trim().length > 0;
+    const [bocha, wiki, ddg, ds] = await Promise.all([
       hasBocha
         ? searchWithLog('bocha', hostOfUrl(BOCHA.endpoint), query, () =>
             searchBocha(query, bochaKey!, fetchFn as never),
@@ -206,8 +213,18 @@ async function loadWeb(
       searchWithLog('duckduckgo', 'duckduckgo.com', query, () =>
         searchWeb(query, fetchFn as never),
       ),
+      dsUsable
+        ? searchWithLog('ds-web-search', hostOfUrl(dsModel!.baseUrl), query, () =>
+            searchDeepSeekResponses(
+              query,
+              dsModel!.apiKey,
+              dsModel!.baseUrl,
+              fetchFn as never,
+            ),
+          )
+        : Promise.resolve([] as WebSnippet[]),
     ]);
-    const merged = [...bocha, ...wiki, ...ddg];
+    const merged = [...bocha, ...wiki, ...ds, ...ddg];
     const snippets = trimSnippets(merged, CONTEXT.webContextMaxChars);
     return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
   } catch {
@@ -356,7 +373,11 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     hasCues: cues.length > 0,
   });
   const web = needWeb
-    ? await loadWeb(args.term ?? args.question, settings.bochaApiKey)
+    ? await loadWeb(args.term ?? args.question, settings.bochaApiKey, {
+        model: model.model,
+        apiKey: model.apiKey,
+        baseUrl: model.baseUrl,
+      })
     : { snippets: [] as WebSnippet[], context: '' };
   // 学生上传的图：只要模型支持图像就发（与抽帧开关无关——用户显式上传，意图明确）
   const uploads = modelSupportsVisionOf(model, settings) ? (args.uploads ?? []) : [];

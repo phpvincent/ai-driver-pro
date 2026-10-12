@@ -6,7 +6,9 @@ import { shouldSearchWeb } from '../../../src/panel/explainLoader';
 import {
   buildWikipediaUrl,
   parseBochaResults,
+  parseDeepSeekResponsesOutput,
   parseWikipediaResults,
+  supportsDsWebSearch,
 } from '../../../src/core/knowledge/webSearch';
 
 describe('shouldSearchWeb（检索路由，SPEC-15）', () => {
@@ -57,6 +59,68 @@ describe('parseBochaResults（博查响应：data.webPages.value[]，实测形�
   it('maxResults 上限生效', () => {
     const json = { data: { webPages: { value: Array.from({ length: 8 }, (_, i) => ({ name: `T${i}`, url: `https://${i}.com`, snippet: 'C' })) } } };
     expect(parseBochaResults(json, 3)).toHaveLength(3);
+  });
+});
+
+describe('DeepSeek Responses 内置搜索（SPEC-15 七轮）', () => {
+  it('supportsDsWebSearch：仅 deepseek-v4-flash 精确匹配', () => {
+    expect(supportsDsWebSearch('deepseek-v4-flash')).toBe(true);
+    expect(supportsDsWebSearch('deepseek-chat')).toBe(false);
+    expect(supportsDsWebSearch('deepseek-v4-flash-pro')).toBe(false); // 非精确匹配不放行
+    expect(supportsDsWebSearch('')).toBe(false);
+  });
+  it('解析 open_page URL（剥 ws_call_id 尾巴、去重、截 maxPages）+ message 回答文本', () => {
+    const json = {
+      status: 'completed',
+      output: [
+        { type: 'reasoning', content: [{ type: 'reasoning_text', text: '思考' }] },
+        {
+          type: 'web_search_call',
+          status: 'completed',
+          action: { type: 'search', queries: ['北京天气'] }, // search 动作无 URL，忽略
+        },
+        {
+          type: 'web_search_call',
+          status: 'completed',
+          action: {
+            type: 'open_page',
+            url: 'https://weather.com/beijing#ws_call_id=call_01',
+          },
+        },
+        {
+          type: 'web_search_call',
+          status: 'completed',
+          action: { type: 'open_page', url: 'https://weather.com/beijing' }, // 去重
+        },
+        {
+          type: 'web_search_call',
+          status: 'in_progress', // 未完成忽略
+          action: { type: 'open_page', url: 'https://pending.com' },
+        },
+        {
+          type: 'message',
+          status: 'completed',
+          content: [{ type: 'output_text', text: '综合回答正文' }],
+        },
+      ],
+    };
+    const { pages, answerText } = parseDeepSeekResponsesOutput(json, 4);
+    expect(pages).toHaveLength(1);
+    expect(pages[0]!.url).toBe('https://weather.com/beijing'); // 尾巴已剥
+    expect(answerText).toBe('综合回答正文');
+  });
+  it('非对象 / 空 output / 只有 search 动作 → 空结果', () => {
+    expect(parseDeepSeekResponsesOutput({}, 4)).toEqual({ pages: [], answerText: '' });
+    expect(parseDeepSeekResponsesOutput({ output: 'oops' }, 4)).toEqual({
+      pages: [],
+      answerText: '',
+    });
+    expect(
+      parseDeepSeekResponsesOutput(
+        { output: [{ type: 'web_search_call', status: 'completed', action: { type: 'search' } }] },
+        4,
+      ),
+    ).toEqual({ pages: [], answerText: '' });
   });
 });
 
