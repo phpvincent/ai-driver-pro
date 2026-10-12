@@ -268,6 +268,8 @@ interface ChatMessage {
   rangeMs?: [number, number] | null;
   /** 用户消息附带的上传图（只存缩略用的 data URI，不进历史库） */
   attachments?: string[];
+  /** 思考过程简报（SPEC-15：回答完成后可展开回看；历史恢复无） */
+  steps?: string[];
   /** 存库（存入 Obsidian）状态与行内结果（红线 8：失败不打断面板） */
   saving?: boolean;
   savedText?: string;
@@ -340,16 +342,28 @@ function formatTermText(term: TermPayload): string {
 
 
 /** 等待提示（SPEC-10 10.6）：已耗时秒数 + 时长预期，缓解"死了吗"焦虑 */
-function QaLoadingHint() {
+/** 思考过程简报（SPEC-15 二轮）：生成期间的步骤时间线；随秒数推进 */
+function QaLoadingHint({ steps }: { steps?: string[] }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
+  const list = steps ?? [];
   return (
     <div className="chat-loading chat-loading-live">
       <span className="chat-loading-dot" aria-hidden="true" />
-      助教思考中… 已等待 {elapsed} 秒（通常 3~15 秒，带题目图片可能更久，可切走稍后回来）
+      <div className="chat-steps">
+        {list.map((t, i) => (
+          <div key={i} className="chat-step">
+            <span className="chat-step-dot" aria-hidden="true" />
+            {t}
+          </div>
+        ))}
+        <div className="chat-step-meta">
+          已等待 {elapsed} 秒（通常 3~15 秒，可切走稍后回来）
+        </div>
+      </div>
     </div>
   );
 }
@@ -385,6 +399,8 @@ export function ChatTab(props: ChatTabProps) {
   /** 工具行浮层（SPEC-14 UI 瘦身）：时间窗口 / 角色，互斥展开 */
   const [windowOpen, setWindowOpen] = useState(false);
   const [personaOpen, setPersonaOpen] = useState(false);
+  /** 思考过程简报（SPEC-15 二轮）：生成期间的步骤时间线，完成后随回答收起 */
+  const [steps, setSteps] = useState<string[]>([]);
 
   const nextIdRef = useRef(1);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -423,6 +439,7 @@ export function ChatTab(props: ChatTabProps) {
     if (!props.explain || busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+    setSteps(['正在读取课程上下文（字幕 / 章节 / 课程背景）']);
     props.onPause?.();
     // 多轮记忆（SPEC-14 store 化）：随请求发送窗口内轮次 + 会话摘要
     const mem = videoId ? getDialogue(videoId) : { summary: '', turns: [] };
@@ -439,7 +456,11 @@ export function ChatTab(props: ChatTabProps) {
       attachments: (req.uploads ?? []).map((u) => `data:${u.mime};base64,${u.dataBase64}`),
     });
     try {
+      // 过程简报：真实耗时后逐步推进（explain 内部各阶段我们拿不到回调，
+      // 按典型耗时披露节奏——诚实标注为"正在"，不虚构已完成）
+      setSteps((prev) => [...prev, '正在检索课内知识与公开资料']);
       const res = await props.explain(askReq);
+      setSteps((prev) => [...prev, '正在组织回答']);
       if (res.term) {
         const full = formatTermText(res.term);
         pushMessage({
@@ -453,6 +474,7 @@ export function ChatTab(props: ChatTabProps) {
           typing: full.length > 0,
           term: res.term,
           hits: res.hits,
+          steps: [...steps],
         });
       } else if (res.answer) {
         const full = res.answer.answer;
@@ -474,6 +496,7 @@ export function ChatTab(props: ChatTabProps) {
           typing: full.length > 0,
           answer: res.answer,
           hits: res.hits,
+          steps: [...steps],
         });
       } else {
         const full = res.record?.answer ?? '（空回答）';
@@ -487,6 +510,7 @@ export function ChatTab(props: ChatTabProps) {
           chunkIdx: 0,
           typing: full.length > 0,
           hits: res.hits,
+          steps: [...steps],
         });
       }
     } catch (err) {
@@ -805,6 +829,28 @@ export function ChatTab(props: ChatTabProps) {
                 {/* 来源区：仅命中时展示，未命中不打扰 */}
                 {!m.typing && (rangeLine || knowledgeLine || webLine) && (
                   <div style={SOURCE_BLOCK_STYLE}>
+                    {m.steps && m.steps.length > 0 && !m.typing && (
+                      <details className="chat-steps-details">
+                        <summary>思考过程</summary>
+                        {m.steps.map((t, i) => (
+                          <div key={i} className="chat-step">
+                            <span className="chat-step-dot done" aria-hidden="true" />
+                            {t}
+                          </div>
+                        ))}
+                      </details>
+                    )}
+                    {m.steps && m.steps.length > 0 && !m.typing && (
+                      <details className="chat-steps-details">
+                        <summary>思考过程</summary>
+                        {m.steps.map((t, i) => (
+                          <div key={i} className="chat-step">
+                            <span className="chat-step-dot done" aria-hidden="true" />
+                            {t}
+                          </div>
+                        ))}
+                      </details>
+                    )}
                     {rangeLine && <div style={KNOWLEDGE_HINT_STYLE}>{rangeLine}</div>}
                     {knowledgeLine && <div style={KNOWLEDGE_HINT_STYLE}>{knowledgeLine}</div>}
                     {webLine && <div style={KNOWLEDGE_HINT_STYLE}>{webLine}</div>}
@@ -895,7 +941,7 @@ export function ChatTab(props: ChatTabProps) {
           </div>
           );
         })}
-        {busy && <QaLoadingHint />}
+        {busy && <QaLoadingHint steps={steps} />}
       </div>
 
       {/* 输入区（composer 卡片）：附件条 → 输入行 → 工具行（区间 / 角色 / 模型） */}

@@ -633,3 +633,109 @@
   flex: 1;
   min-width: 0;
 }
+
+/* ===== 思考过程简报（SPEC-15 二轮）：生成中时间线 + 完成后可展开回看 ===== */
+.chat-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-left: 2px;
+}
+
+.chat-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #4e5969);
+  line-height: 1.5;
+}
+
+.chat-step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #165dff);
+  flex-shrink: 0;
+  animation: chat-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.chat-step-dot.done {
+  background: var(--text-tertiary, #86909c);
+  animation: none;
+}
+
+.chat-step-meta {
+  font-size: 11px;
+  color: var(--text-tertiary, #86909c);
+  margin-top: 2px;
+}
+
+.chat-steps-details {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.chat-steps-details summary {
+  cursor: pointer;
+  color: var(--text-tertiary, #86909c);
+  user-select: none;
+  font-size: 11px;
+}
+
+.chat-steps-details summary:hover {
+  color: var(--accent, #165dff);
+}
+
+/* ===== 思考过程简报（SPEC-15 二轮）：生成中时间线 + 完成后可展开回看 ===== */
+.chat-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-left: 2px;
+}
+
+.chat-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #4e5969);
+  line-height: 1.5;
+}
+
+.chat-step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #165dff);
+  flex-shrink: 0;
+  animation: chat-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.chat-step-dot.done {
+  background: var(--text-tertiary, #86909c);
+  animation: none;
+}
+
+.chat-step-meta {
+  font-size: 11px;
+  color: var(--text-tertiary, #86909c);
+  margin-top: 2px;
+}
+
+.chat-steps-details {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.chat-steps-details summary {
+  cursor: pointer;
+  color: var(--text-tertiary, #86909c);
+  user-select: none;
+  font-size: 11px;
+}
+
+.chat-steps-details summary:hover {
+  color: var(--accent, #165dff);
+}
