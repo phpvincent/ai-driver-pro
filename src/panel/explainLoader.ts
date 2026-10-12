@@ -123,8 +123,11 @@ export function shouldSearchWeb(args: {
 }): boolean {
   const q = `${args.term ?? ''} ${args.question}`.trim();
   const explicit = ['最新', '现在', '今天', '2025', '2026', '版本', '发布', '官网', '新闻', '行情', '价格'];
+  // 概念询问词：用户在问"这是什么"，外部权威定义价值高（Wikipedia 强项）
+  const concept = ['是什么', '什么是', '定义', '区别', '意思', '是指', '简称', '全称'];
   if (args.term) return true; // 术语解释：概念定义优先外部权威
   if (explicit.some((k) => q.includes(k))) return true;
+  if (concept.some((k) => q.includes(k))) return true;
   return !args.hasKnowledgeHits && !args.hasCues; // 课内无依据才外查
 }
 

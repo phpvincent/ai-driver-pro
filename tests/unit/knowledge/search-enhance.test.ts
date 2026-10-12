@@ -16,7 +16,9 @@ describe('shouldSearchWeb（检索路由，SPEC-15）', () => {
     expect(shouldSearchWeb({ term: undefined, question: '这个库今天发布了吗', hasKnowledgeHits: false, hasCues: false })).toBe(true);
   });
   it('课内有依据且无时新信号 → 不检索', () => {
-    expect(shouldSearchWeb({ term: undefined, question: '这章讲的交叉关系是什么', hasKnowledgeHits: true, hasCues: true })).toBe(false);
+    expect(shouldSearchWeb({ term: undefined, question: '这章讲的交叉关系再展开讲讲', hasKnowledgeHits: true, hasCues: true })).toBe(false);
+    // 概念询问词（是什么/定义…）必检：外部权威定义价值高（SPEC-15 二轮放宽）
+    expect(shouldSearchWeb({ term: undefined, question: '交叉关系是什么', hasKnowledgeHits: true, hasCues: true })).toBe(true);
     expect(shouldSearchWeb({ term: undefined, question: '刚才老师说的步骤', hasKnowledgeHits: false, hasCues: true })).toBe(false);
   });
   it('课内完全无依据 → 检索', () => {
