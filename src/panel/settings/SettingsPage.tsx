@@ -172,6 +172,9 @@ export function SettingsPage({
   const [knowledgeSearch, setKnowledgeSearch] = useState<boolean>(true);
   /** 博查搜索增强 Key（SPEC-15：国内方案，可选；配置后公开资料升级为专业搜索） */
   const [bochaKey, setBochaKey] = useState('');
+  /** 搜索增强独立保存（SPEC-15 三轮：从 Obsidian 区段拆出，防误点 Obsidian 测试连接） */
+  const [bochaSaving, setBochaSaving] = useState(false);
+  const [bochaFeedback, setBochaFeedback] = useState<Feedback>(null);
   const [obsidianFeedback, setObsidianFeedback] = useState<Feedback>(null);
   const [obsidianTesting, setObsidianTesting] = useState(false);
   const [obsidianSaving, setObsidianSaving] = useState(false);
@@ -497,7 +500,7 @@ export function SettingsPage({
       enabled: obsidian.enabled,
     };
     // 与 Obsidian 配置一起保存 knowledgeSearch 开关（整份 settings 合并写，不动其他分区）
-    savePatch({ obsidian: cfg, knowledgeSearch, bochaApiKey: bochaKey.trim() })
+    savePatch({ obsidian: cfg, knowledgeSearch })
       .then((ok) => {
         setObsidianFeedback(
           ok ? { kind: 'ok', text: '已保存' } : { kind: 'error', text: '保存失败：background 未确认' },
@@ -537,6 +540,21 @@ export function SettingsPage({
         setObsidianFeedback({ kind: 'error', text: raw.split(cfg.apiKey).join('***') });
       })
       .finally(() => setObsidianTesting(false));
+  };
+
+  /** 搜索增强独立保存（只写 bochaApiKey，不动其他分区） */
+  const handleSaveBocha = () => {
+    setBochaSaving(true);
+    setBochaFeedback(null);
+    savePatch({ bochaApiKey: bochaKey.trim() })
+      .then(() =>
+        setBochaFeedback({
+          kind: 'ok',
+          text: bochaKey.trim() ? '已保存：公开资料检索将使用博查' : '已保存：使用内置检索（Wikipedia + DuckDuckGo）',
+        }),
+      )
+      .catch(() => setBochaFeedback({ kind: 'error', text: '保存失败，请重试' }))
+      .finally(() => setBochaSaving(false));
   };
 
   /** 抽帧区是否可用：取决于「支持图像输入」勾选 */
@@ -863,28 +881,7 @@ export function SettingsPage({
           />
           <span>问答时检索个人知识库（默认开启）</span>
         </label>
-        <label className="field">
-          <span>搜索增强（可选）</span>
-          <input
-            type="password"
-            value={bochaKey}
-            placeholder="博查 API Key（可选）"
-            onChange={(e) => {
-              setBochaKey(e.target.value);
-              setObsidianFeedback(null);
-            }}
-          />
-          <span className="settings-hint">
-            配置后问答的公开资料检索升级为专业网页搜索（新闻 / 时效内容覆盖好，中文质量佳）。
-            到
-            <a href={BOCHA.consoleUrl} target="_blank" rel="noreferrer">
-              博查开放平台（open.bochaai.com）
-            </a>
-            微信扫码注册（免费，无需信用卡）→ 首页「购买资源包」领取免费的 1000 次试用包 →
-            「API KEY 管理」创建并复制 Key 粘贴到这里，随上面「保存」一并生效。
-            不配置则使用内置检索（Wikipedia + DuckDuckGo）
-          </span>
-        </label>
+
         <div className="field-row">
           <button
             type="button"
@@ -913,6 +910,51 @@ export function SettingsPage({
           </p>
         )}
       </section>
+      <section className="settings-section">
+        <h4>搜索增强（可选）</h4>
+        <p className="settings-hint">
+          问答的公开资料检索升级为专业网页搜索（博查，中文质量好，新闻 / 时效内容覆盖佳）。
+          到
+          <a href={BOCHA.consoleUrl} target="_blank" rel="noreferrer">
+            博查开放平台（open.bochaai.com）
+          </a>
+          微信扫码注册（免费，无需信用卡）→ 首页「购买资源包」领取免费的 1000 次试用包 →
+          「API KEY 管理」创建并复制 API Key 粘贴到下方，点「保存」生效。
+          不配置则使用内置检索（Wikipedia + DuckDuckGo），功能不受影响
+        </p>
+        <label className="field">
+          <span>博查 API Key</span>
+          <input
+            type="password"
+            value={bochaKey}
+            placeholder="粘贴博查 API Key（sk-…）"
+            onChange={(e) => {
+              setBochaKey(e.target.value);
+              setBochaFeedback(null);
+            }}
+          />
+        </label>
+        <div className="field-row">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSaveBocha}
+            disabled={bochaSaving}
+          >
+            {bochaSaving ? '保存中…' : '保存'}
+          </button>
+        </div>
+        {bochaFeedback && (
+          <p
+            className={
+              bochaFeedback.kind === 'ok' ? 'settings-hint' : 'settings-hint settings-error'
+            }
+          >
+            {bochaFeedback.text}
+          </p>
+        )}
+      </section>
+
 
       {/* SPEC-10 10.5：数据管理（备份与恢复） */}
       <section className="settings-section">
