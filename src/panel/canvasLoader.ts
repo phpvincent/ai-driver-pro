@@ -17,7 +17,11 @@ import {
   getCanvasMindmapSystemPrompt,
   PROMPT_VERSIONS,
 } from '../prompts';
-import { createSubtitleDb } from '../storage/db';
+import { createSubtitleDb, getSubtitle } from '../storage/db';
+import { planFrames, requestFrames, toPipelineImage } from './framesClient';
+import { captionFrame } from '../core/vision/structuralCandidates';
+import { frameBudgetFor, isDenseSections } from '../core/vision/framePlanner';
+import { visionActiveFor, modelSupportsVisionOf } from './settings/modelForm';
 import type { ModelConfig, Section, Settings } from '../types';
 import { publishProgress } from './progressBus';
 import { resolveModel } from './settings/modelForm';
@@ -99,7 +103,36 @@ export async function generateCanvasFor(
   const progress = (pct: number, label: string): void =>
     publishProgress({ videoId, stage: 'mindmap', done: 1, total: 100, pct, label });
 
-  progress(10, kind === 'mindmap' ? '模型梳理知识结构中' : '模型绘制流程图中');
+  // 抽帧（与导图同门控/同预算：结合课程画面作图；模型不支持图像则纯文本）
+  const useVision =
+    visionActiveFor({ settings, module: 'mindmap' }) && modelSupportsVisionOf(model, settings);
+  let images: ReturnType<typeof toPipelineImage>[] = [];
+  if (useVision) {
+    const rec = await getSubtitle(db, videoId).catch(() => null);
+    const cues = rec?.cues ?? [];
+    const durationMs = rec?.meta?.durationMs ?? cues[cues.length - 1]?.endMs ?? 0;
+    progress(10, '抽帧规划（扫描画面）');
+    const targets = await planFrames({
+      videoId,
+      module: 'mindmap',
+      cues,
+      sections,
+      durationMs,
+      budget: frameBudgetFor('mindmap', durationMs, isDenseSections(sections, durationMs), sections.length),
+      meta: { title: videoTitle || rec?.meta?.title, page: rec?.meta?.page },
+      span: { videoId, from: 10, to: 55 },
+    });
+    const frames = (
+      await requestFrames({ videoId, targetsMs: targets }, { videoId, from: 55, to: 70 })
+    ).map(toPipelineImage);
+    progress(70, kind === 'mindmap' ? '模型结合画面梳理知识结构中' : '模型结合画面绘制流程图中');
+    images = frames.map((f, i) => ({
+      ...f,
+      caption: captionFrame(f.timeMs, i, frames.length, sections, cues),
+    }));
+  } else {
+    progress(15, kind === 'mindmap' ? '模型梳理知识结构中' : '模型绘制流程图中');
+  }
   const systemPrompt = kind === 'mindmap' ? getCanvasMindmapSystemPrompt() : getCanvasFlowchartSystemPrompt();
 
   const code = await generateCanvas({
@@ -108,8 +141,9 @@ export async function generateCanvasFor(
     userPrompt: buildCanvasUserPrompt(sections, videoTitle),
     videoTitle,
     validate: kind === 'flowchart' ? validateMermaid : undefined,
-    onRetry: () => progress(60, '语法校验未通过，模型修正中'),
-    modelFn: ({ systemPrompt: sys, userPrompt }) =>
+    onRetry: () => progress(88, '语法校验未通过，模型修正中'),
+    images,
+    modelFn: ({ systemPrompt: sys, userPrompt, images: imgs }) =>
       chatCompletion({
         baseUrl: model.baseUrl,
         apiKey: model.apiKey,
@@ -121,6 +155,13 @@ export async function generateCanvasFor(
           { role: 'user', content: userPrompt },
         ],
         thinking: settings.disableThinking === false ? { type: 'enabled' } : { type: 'disabled' },
+        images: imgs?.map((i) => ({
+          dataBase64: i.dataBase64,
+          mime: i.mime ?? 'image/jpeg',
+          timeMs: i.timeMs,
+          caption: i.caption,
+          thumbBase64: i.thumbBase64,
+        })),
         label: kind === 'mindmap' ? 'canvas-mindmap' : 'canvas-flowchart',
       }).then((res) => ({ content: res.content })),
   });

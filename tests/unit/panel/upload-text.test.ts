@@ -45,8 +45,8 @@ describe('textUploadNote（参考资料素材分区）', () => {
 describe('buildPersonaPrompt userHint（重判角色用户补充）', () => {
   const sections: Section[] = [
     {
-      id: 's1', startMs: 0, endMs: 1000, title: 'T', summary: '', density: 'none',
-      bullets: [], terms: [], score: 50, importance: 3,
+      id: 's1', startMs: 0, endMs: 1000, title: 'T', summary: '', density: 'mid',
+      bullets: [], terms: [], score: 50, importance: 3, cueRange: [0, 1000],
     },
   ];
   it('不传 hint 行为不变；传入时进入 prompt 且声明用户意图优先', () => {
