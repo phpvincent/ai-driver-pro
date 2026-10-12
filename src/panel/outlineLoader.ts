@@ -7,6 +7,7 @@
  */
 import { chatCompletion } from '../core/harness/modelClient';
 import { mapSpan, publishProgress } from './progressBus';
+import { withGenMutex } from './genMutex';
 import {
   buildOutlinePrompts,
   buildOutlineRegeneratePrompts,
@@ -269,11 +270,12 @@ export async function generateOutline(
 ): Promise<OutlineResult> {
   const running = inflight.get(videoId);
   if (running) return running;
-  const task = loadOutlineForVideo(videoId, { forceRefresh: true, onProgress: opts.onProgress }).finally(
-    () => {
-      inflight.delete(videoId);
-    },
-  );
+  // 生成互斥（genMutex）：大纲/画布抽帧共用一把锁，避免同时 seek 打架
+  const task = withGenMutex(() =>
+    loadOutlineForVideo(videoId, { forceRefresh: true, onProgress: opts.onProgress }),
+  ).finally(() => {
+    inflight.delete(videoId);
+  });
   inflight.set(videoId, task);
   return task;
 }

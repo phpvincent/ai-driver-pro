@@ -31,6 +31,7 @@ import {
 } from './notes/notesLoader';
 import { NoteModal, SectionNotes, UnanchoredNotes, type NoteEditorRequest } from './notes/NotesUi';
 import { GenerationProgress } from './GenerationProgress';
+import { isGenBusy, subscribeGenBusy } from './genMutex';
 import { downloadTextFile, readTextFileViaInput } from '../platform/files';
 
 export interface OutlineTabProps {
@@ -459,6 +460,13 @@ export function OutlineTab(props: OutlineTabProps) {
   const [errorText, setErrorText] = useState('');
   /** 单章重生成：进行中的章节 id / 失败信息 */
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  /** 生成互斥（genMutex）：画布/大纲任一生成中，本 Tab 的生成按钮禁用 */
+  const [genBusy, setGenBusy] = useState(false);
+  useEffect(() => {
+    const sync = (): void => setGenBusy(isGenBusy());
+    sync();
+    return subscribeGenBusy(sync);
+  }, []);
   const [regenError, setRegenError] = useState<{ sectionId: string; text: string } | null>(null);
   /** 存库（存入 Obsidian）：进行中标记与行内结果文本（红线 8：失败不崩面板） */
   const [saving, setSaving] = useState(false);
@@ -524,7 +532,7 @@ export function OutlineTab(props: OutlineTabProps) {
   }, [videoId, modelReady]);
 
   const handleGenerate = () => {
-    if (!videoId) return;
+    if (!videoId || isGenBusy()) return;
     // SPEC-09 9.3 A4：有笔记时重生成前先确认（笔记不删，但可能需要手动归位）
     if (notesState.notes.length > 0) {
       const ok = window.confirm(
@@ -812,7 +820,7 @@ export function OutlineTab(props: OutlineTabProps) {
         {pickerRow}
         <div className="tab-placeholder">
           <p>{OUTLINE_PHASE_TEXT.idle}</p>
-          <button type="button" className="btn btn-primary" onClick={handleGenerate}>
+          <button type="button" className="btn btn-primary" onClick={handleGenerate} disabled={genBusy}>
             生成大纲
           </button>
         </div>
@@ -885,7 +893,7 @@ export function OutlineTab(props: OutlineTabProps) {
           type="button"
           className="btn"
           onClick={handleGenerate}
-          disabled={regeneratingId !== null}
+          disabled={regeneratingId !== null || genBusy}
         >
           重新生成
         </button>
