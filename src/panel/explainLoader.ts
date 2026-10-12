@@ -38,6 +38,7 @@ import { CONTEXT } from '../config';
 import { frameBudgetFor } from '../core/vision/framePlanner';
 import { captionFrame } from '../core/vision/structuralCandidates';
 import { uploadCaption, uploadQuestionNote } from './uploadImage';
+import { textUploadNote } from './uploadText';
 import type { WebSnippet } from '../core/knowledge/webSearch';
 import type { CapturedFrame } from '../messages';
 
@@ -199,7 +200,8 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
   if ((args.uploads?.length ?? 0) > 0 && uploads.length === 0) {
     throw new Error('当前模型不支持图片输入：请在设置中切换到多模态模型（如 Qwen-VL）后重试');
   }
-  const question = args.question + uploadQuestionNote(uploads.length);
+  const question =
+    args.question + uploadQuestionNote(uploads.length) + textUploadNote(args.textUploads ?? []);
 
   // 关键帧（可选：需多模态模型，deepseek-chat 不支持视觉）
   const frames = await loadFrames({

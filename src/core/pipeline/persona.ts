@@ -81,6 +81,8 @@ export function buildPersonaPrompt(args: {
   title: string;
   sections: Section[];
   cueHead: string[];
+  /** 用户补充的角色期望（重判时可选）：与视频素材综合判定 */
+  userHint?: string;
 }): { systemPrompt: string; userPrompt: string } {
   const lines = [`视频标题：${args.title}`, '', '课程章节（按时间顺序）：'];
   if (args.sections.length === 0) {
@@ -99,6 +101,10 @@ export function buildPersonaPrompt(args: {
     for (const t of head) lines.push(t.trim());
   }
   lines.push(CUE_MATERIAL_END);
+  const hint = (args.userHint ?? '').trim();
+  if (hint.length > 0) {
+    lines.push('', '用户补充的角色期望（与上面素材综合判断，用户意图优先）：', hint.slice(0, 500));
+  }
   lines.push('', '请判断以什么类别的老师/专家身份讲解这门内容最合适，只输出严格 JSON。');
   return {
     systemPrompt: DEFAULT_PERSONA_SYSTEM_PROMPT,
@@ -120,6 +126,8 @@ export interface JudgePersonaArgs {
   title: string;
   sections: Section[];
   cueHead: string[];
+  /** 用户补充的角色期望（重判时可选）：综合视频素材与用户意图判定 */
+  userHint?: string;
   modelFn: PersonaModelFn;
   /** system prompt 单一事实源注入（红线 6：调用方传 getPersonaSystemPrompt） */
   getSystemPrompt: () => string;

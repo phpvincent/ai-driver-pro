@@ -209,10 +209,11 @@ export const FRAME_PLAN: Record<
   { tiers: readonly FrameTier[]; min: number; hardMax: number; perSection: number }
 > = {
   outline: {
-    // 90s/帧随时长增长；32 分钟 ≈ 16 帧（每分块 1~2 帧，分块请求上下文压力小）
+    // 90s/帧随时长增长；60 分钟公式值 40 → 护栏 24（每分块 1~3 帧；
+    // 再高的瓶颈是分块请求上下文与采集耗时，不是模型总窗口）
     tiers: [{ uptoSec: Number.POSITIVE_INFINITY, secPerFrame: 90 }],
     min: 3,
-    hardMax: 16,
+    hardMax: 24,
     perSection: 0,
   },
   mindmap: {

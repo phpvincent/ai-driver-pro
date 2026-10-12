@@ -387,13 +387,14 @@ export function App() {
     return flows;
   };
 
-  /** 重判问答角色（用户点"重判角色"） */
-  const handleRefreshPersona = async () => {
+  /** 重判问答角色（用户点"重判角色"；hint = 用户补充的角色期望，综合判定） */
+  const handleRefreshPersona = async (hint?: string) => {
     if (!video || !modelConfig?.apiKey) return;
     const fresh = await generatePersona({
       videoId: video.videoId,
       title: video.title,
       sections,
+      userHint: hint,
     }).catch(() => null);
     if (fresh) setPersona(fresh);
   };

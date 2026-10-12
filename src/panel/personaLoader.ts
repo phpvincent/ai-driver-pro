@@ -82,6 +82,8 @@ export async function generatePersona(args: {
   sections: Section[];
   /** 字幕开头若干条文本；不传则从字幕缓存读取前 8 条 */
   cueHead?: string[];
+  /** 用户补充的角色期望（重判入口传入；与视频素材综合，用户意图优先） */
+  userHint?: string;
 }): Promise<Persona> {
   const cueHead =
     args.cueHead && args.cueHead.length > 0
@@ -119,6 +121,7 @@ export async function generatePersona(args: {
       title: args.title,
       sections: args.sections,
       cueHead,
+      userHint: args.userHint,
       modelFn,
       // 红线 6：system prompt 单一事实源
       getSystemPrompt: getPersonaSystemPrompt,
