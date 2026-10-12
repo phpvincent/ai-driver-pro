@@ -40,7 +40,8 @@ import {
   searchWikipedia,
   trimSnippets,
 } from '../core/knowledge/webSearch';
-import { CONTEXT } from '../config';
+import { BOCHA, CONTEXT } from '../config';
+import { emitLlmLog, hostOfUrl, newLogId } from '../core/metrics/llmLog';
 import { frameBudgetFor } from '../core/vision/framePlanner';
 import { captionFrame } from '../core/vision/structuralCandidates';
 import { uploadCaption, uploadQuestionNote } from './uploadImage';
@@ -132,6 +133,54 @@ export function shouldSearchWeb(args: {
 }
 
 /**
+ * 单次检索的日志包装（SPEC-15 五轮）：检索请求也写 LLM 交互日志——侧边栏看不到
+ * 网络面板，这里是"博查有没有真的被调用 / 返回了几条"的唯一诊断入口。
+ * 条目不设 inputTokens（费用汇总只统计带 token 的条目，检索按次计费不掺和）。
+ */
+async function searchWithLog(
+  provider: string,
+  host: string,
+  query: string,
+  fn: () => Promise<WebSnippet[]>,
+): Promise<WebSnippet[]> {
+  const startedAt = Date.now();
+  const base = {
+    id: newLogId(),
+    at: new Date().toISOString(),
+    label: 'web-search',
+    model: provider,
+    endpointHost: host,
+    durationMs: 0,
+    inputChars: query.length,
+    outputChars: 0,
+    requestPreview: `检索词：${query}`,
+    responsePreview: '',
+  };
+  try {
+    const snippets = await fn();
+    emitLlmLog({
+      ...base,
+      ok: true,
+      durationMs: Date.now() - startedAt,
+      outputChars: snippets.reduce((n, s) => n + s.snippet.length, 0),
+      responsePreview:
+        snippets.length > 0
+          ? snippets.map((s) => `- ${s.title}（${s.url}）`).join('\n')
+          : '（0 条结果：无匹配 / Key 无效 / 额度耗尽均可能，走瀑布下层兜底）',
+    });
+    return snippets;
+  } catch (err) {
+    emitLlmLog({
+      ...base,
+      ok: false,
+      durationMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+/**
  * 公开资料三级瀑布（SPEC-15）：博查 Bocha（用户 Key）→ Wikipedia 中文 → DuckDuckGo。
  * 任一层拿到结果即止；博查与 Wikipedia 可并行（互不依赖），
  * 两者都空再走 DDG 兜底。全程静默降级。
@@ -144,8 +193,12 @@ async function loadWeb(
   try {
     if (bochaKey && bochaKey.trim().length > 0) {
       const [bocha, wiki] = await Promise.all([
-        searchBocha(query, bochaKey, fetchFn as never),
-        searchWikipedia(query, fetchFn as never),
+        searchWithLog('bocha', hostOfUrl(BOCHA.endpoint), query, () =>
+          searchBocha(query, bochaKey, fetchFn as never),
+        ),
+        searchWithLog('wikipedia', 'zh.wikipedia.org', query, () =>
+          searchWikipedia(query, fetchFn as never),
+        ),
       ]);
       const merged = [...bocha, ...wiki];
       if (merged.length > 0) {
@@ -153,14 +206,18 @@ async function loadWeb(
         return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
       }
     } else {
-      const wiki = await searchWikipedia(query, fetchFn as never);
+      const wiki = await searchWithLog('wikipedia', 'zh.wikipedia.org', query, () =>
+        searchWikipedia(query, fetchFn as never),
+      );
       if (wiki.length > 0) {
         const snippets = trimSnippets(wiki, CONTEXT.webContextMaxChars);
         return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
       }
     }
     // 兜底：DDG Instant Answer（现状行为）
-    const raw = await searchWeb(query, fetchFn as never);
+    const raw = await searchWithLog('duckduckgo', 'duckduckgo.com', query, () =>
+      searchWeb(query, fetchFn as never),
+    );
     const snippets = trimSnippets(raw, CONTEXT.webContextMaxChars);
     return { snippets, context: buildWebContext(snippets, CONTEXT.webContextMaxChars) };
   } catch {
@@ -398,6 +455,27 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     }).then((res) => ({ content: res.content }));
   };
 
+  /**
+   * 两次 Schema 校验均失败的留痕（SPEC-15 五轮）：请求本身 HTTP 成功（chatCompletion
+   * 只会记 ok=true 一条），校验错误若不单独补一条，日志里就"看不到失败原因"。
+   */
+  const onValidationError = (error: string): void => {
+    emitLlmLog({
+      id: newLogId(),
+      at: new Date().toISOString(),
+      label: 'qa',
+      ok: false,
+      model: model.model,
+      endpointHost: hostOfUrl(model.baseUrl),
+      durationMs: 0,
+      inputChars: 0,
+      outputChars: 0,
+      requestPreview: '（Schema 校验失败，请求报文见上一条 qa 日志）',
+      responsePreview: '',
+      error,
+    });
+  };
+
   if (args.term) {
     const term = await explainTerm({
       term: args.term,
@@ -405,6 +483,7 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
       modelFn,
       getSystemPrompt: getTermExplainerSystemPrompt,
       personaInstruction: personaHint,
+      onValidationError,
     });
     const record: QaRecord = buildQaRecord({
       videoId,
@@ -424,6 +503,7 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     modelFn,
     getSystemPrompt: getSegmentQaSystemPrompt,
     personaInstruction: personaHint,
+    onValidationError,
   });
   const record: QaRecord = buildQaRecord({
     videoId,

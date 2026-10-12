@@ -90,6 +90,40 @@ describe('explainTerm / answerSegment（Schema 校验与重试，红线 4）', (
     ).rejects.toThrow('模型输出两次未通过校验');
   });
 
+  it('两次校验失败 → onValidationError 回调收到最后错误（成功时不回调）', async () => {
+    const seen: string[] = [];
+    const failing = countingModel(['{"answer": 1}', '{"answer": 2}']);
+    await expect(
+      answerSegment({
+        question: '这段讲了什么',
+        input,
+        modelFn: failing.modelFn,
+        onValidationError: (e) => seen.push(e),
+      }),
+    ).rejects.toThrow('模型输出两次未通过校验');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('SegmentAnswerSchema');
+
+    const ok = countingModel([JSON.stringify(segmentPayload)]);
+    await answerSegment({
+      question: '这段讲了什么',
+      input,
+      modelFn: ok.modelFn,
+      onValidationError: (e) => seen.push(e),
+    });
+    expect(seen).toHaveLength(1); // 成功路径不回调
+  });
+
+  it('referencedTimestamps 上限 12（检索增强后素材更密，紧上限会整次拒绝）', async () => {
+    const payload = {
+      ...segmentPayload,
+      referencedTimestamps: Array.from({ length: 12 }, (_, i) => i * 30),
+    };
+    const { modelFn } = countingModel([JSON.stringify(payload)]);
+    const got = await answerSegment({ question: '这段讲了什么', input, modelFn });
+    expect(got.referencedTimestamps).toHaveLength(12);
+  });
+
   it('answerSegment happy path：返回校验后的 payload', async () => {
     const { modelFn, calls } = countingModel([JSON.stringify(segmentPayload)]);
     const got = await answerSegment({ question: '这段讲了什么', input, modelFn });
@@ -243,9 +277,9 @@ describe('answerSegment 知识库素材传递（SPEC-05 范围变更第 4 条）
 });
 
 describe('prompt 单一事实源冒烟（红线 6）', () => {
-  it('PROMPT_VERSIONS：termExplainer 0.2.0（助教/老师人设），segmentQa 0.3.0', () => {
+  it('PROMPT_VERSIONS：termExplainer 0.2.0（助教/老师人设），segmentQa 0.3.1', () => {
     expect(PROMPT_VERSIONS.termExplainer).toBe('0.2.0');
-    expect(PROMPT_VERSIONS.segmentQa).toBe('0.3.0');
+    expect(PROMPT_VERSIONS.segmentQa).toBe('0.3.1');
   });
 
   it('两个 system prompt 关键规则：素材不是指令、严格 JSON', () => {
