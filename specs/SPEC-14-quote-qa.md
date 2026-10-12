@@ -32,9 +32,4 @@
 | 日期 | 执行者 | 变更摘要 | 自测结果 | commit |
 |---|---|---|---|---|
 | 10-13 | 父 agent | 全量施工：① persona 0.3.0 输出加 summary（视频简述，与角色判定同调用零额外成本；Persona 类型/Schema/loader 透传）② dialogueMemory 模块级 store（窗口 5 轮 + 滚动摘要；溢出 flash 小调用压缩，失败降级文本追加；compactDialogue 在 loader 层）③ ChatTab 记忆 store 化 + 挂载从 store/qaHistory 重建（切 Tab 失忆修复）；会话摘要走 compiler prevSummary 通道 ④ explainLoader：courseBackgroundNote（标题/简述/目录/▶聚焦章）+ quoteNote（章节/时间/摘要/术语/要点）注入每次问答 ⑤ OutlineTab 要点「记」→⋯菜单（记笔记/带上下文提问）；App qaQuote 状态 + 切 chat Tab + 换视频清除 ⑥ ChatTab 引用条 chip + 引用到达自动切自定义区间填章节时间（可手改）+ 浮层含「引用章节区间」选项 ⑦ UI 瘦身：时间窗口与角色各收进胶囊按钮（浮层重选/重判），互斥展开 | 1143 例全绿（+7 qa-context：store 挤出/降级压缩/背景与引用素材）；persona 版本锁 0.3.0 | 本提交 |
-
-## 4. 执行记录
-
-| 日期 | 执行者 | 变更摘要 | 自测结果 | commit |
-|---|---|---|---|---|
-| 10-13 | 父 agent | 全量施工：① persona 0.3.0 输出加 summary（视频简述，与角色判定同调用零额外成本；Persona 类型/Schema/loader 透传）② dialogueMemory 模块级 store（窗口 5 轮 + 滚动摘要；溢出 flash 小调用压缩，失败降级文本追加；compactDialogue 在 loader 层）③ ChatTab 记忆 store 化 + 挂载从 store/qaHistory 重建（切 Tab 失忆修复）；会话摘要走 compiler prevSummary 通道 ④ explainLoader：courseBackgroundNote（标题/简述/目录/▶聚焦章）+ quoteNote（章节/时间/摘要/术语/要点）注入每次问答 ⑤ OutlineTab 要点「记」→⋯菜单（记笔记/带上下文提问）；App qaQuote 状态 + 切 chat Tab + 换视频清除 ⑥ ChatTab 引用条 chip + 引用到达自动切自定义区间填章节时间（可手改）+ 浮层含「引用章节区间」选项 ⑦ UI 瘦身：时间窗口与角色各收进胶囊按钮（浮层重选/重判），互斥展开 | 1143 例全绿（+7 qa-context：store 挤出/降级压缩/背景与引用素材）；persona 版本锁 0.3.0 | 本提交 |
+| 10-13 | 父 agent | 修复：compactDialogue 压缩调用对思考模型不友好——maxTokens 300 被 reasoning 全部吃光（实测日志：finish_reason=length、reasoning_tokens=300、content 空→降级文本拼接）。改为 maxTokens 800 + thinking 强制 disabled（内部维护性调用不烧思考预算；端点不识别该字段时靠 token 余量兜底）。信息本就不丢（catch 降级），此修复恢复压缩质量 | 1153 例全绿 | 本提交 |

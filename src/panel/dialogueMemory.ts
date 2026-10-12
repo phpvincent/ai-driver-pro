@@ -130,7 +130,13 @@ export async function compactDialogue(
       apiKey: model.apiKey,
       model: model.model,
       temperature: 0.2,
-      maxTokens: 300,
+      // 800：思考模型（deepseek-flash 等）会先消耗推理 token 才写正文，
+      // 300 会被 reasoning 全部吃光导致正文为空（2026-10-13 实测：finish_reason=length、
+      // reasoning_tokens=300、content=""→降级）。摘要上限 200 字，800 给思考留了余量。
+      maxTokens: 800,
+      // 内部维护性调用：禁用思考（用户设置只该影响用户可见的生成；这里烧思考预算纯浪费）。
+      // 端点不识别该字段时会被忽略，maxTokens 余量兜底。
+      thinking: { type: 'disabled' },
       messages: [
         { role: 'system', content: '你是会话记录压缩器，只输出合并后的摘要正文。' },
         { role: 'user', content: buildCompactPrompt(prevSummary, evicted) },
