@@ -15,6 +15,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { CONTEXT, WEB_SEARCH_FALLBACK_URL } from '../config';
 import { findSectionAt, formatMmSs } from '../core/context/compiler';
+import type { OutlineQuote } from './explainLoader';
+import {
+  appendTurn as memAppendTurn,
+  compactDialogue,
+  DIALOGUE_MAX_TURNS as MEM_MAX_TURNS,
+  getDialogue,
+  setDialogue as memSetDialogue,
+} from './dialogueMemory';
 import type { WebSnippet } from '../core/knowledge/webSearch';
 import type { SegmentAnswerPayload, TermPayload } from '../core/pipeline/explain';
 import { nearestCueStartMs } from '../core/pipeline/snap';
@@ -47,6 +55,10 @@ export interface ExplainRequest {
   uploads?: UploadedImage[];
   /** 学生上传的文本附件（代码 / 笔记等）；纯文本，任何模型可用 */
   textUploads?: TextUpload[];
+  /** 大纲要点引用（SPEC-14：OutlineTab「带上下文提问」注入） */
+  quote?: OutlineQuote;
+  /** 会话摘要（SPEC-14 记忆升级：滑窗挤出的旧轮合并摘要） */
+  sessionSummary?: string;
   /** 最近问答（多轮记忆，SPEC-08 8.4b）：q=问题原文，a=回答要点摘要 */
   history?: ReadonlyArray<{ q: string; a: string }>;
 }
@@ -85,6 +97,10 @@ export interface ChatTabProps {
   persona?: Persona | null;
   /** 重判角色（父 agent 注入 personaLoader.generatePersona；未注入则按钮隐藏） */
   onRefreshPersona?: (hint?: string) => Promise<void>;
+  /** 大纲要点引用（SPEC-14：OutlineTab「带上下文提问」跳转注入；变化即更新） */
+  quote?: OutlineQuote | null;
+  /** 移除引用（引用条 × 按钮） */
+  onClearQuote?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +338,6 @@ function formatTermText(term: TermPayload): string {
   ].join('\n\n');
 }
 
-const DIALOGUE_MAX_TURNS = 5;
 
 /** 等待提示（SPEC-10 10.6）：已耗时秒数 + 时长预期，缓解"死了吗"焦虑 */
 function QaLoadingHint() {
@@ -348,6 +363,7 @@ export function ChatTab(props: ChatTabProps) {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   /** 多轮记忆（最近 5 轮；术语解释不入记忆，换视频清空） */
+  /** 多轮记忆视图镜像（真身在 dialogueMemory 模块级 store——切 Tab 不失忆） */
   const [dialogue, setDialogue] = useState<Array<{ q: string; a: string }>>([]);
   const [input, setInput] = useState('');
   /** 待发送的上传图 */
@@ -366,6 +382,9 @@ export function ChatTab(props: ChatTabProps) {
   const [personaHintText, setPersonaHintText] = useState('');
   /** 文本附件（代码 / 笔记；不需要多模态模型） */
   const [textUploads, setTextUploads] = useState<TextUpload[]>([]);
+  /** 工具行浮层（SPEC-14 UI 瘦身）：时间窗口 / 角色，互斥展开 */
+  const [windowOpen, setWindowOpen] = useState(false);
+  const [personaOpen, setPersonaOpen] = useState(false);
 
   const nextIdRef = useRef(1);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -405,9 +424,14 @@ export function ChatTab(props: ChatTabProps) {
     busyRef.current = true;
     setBusy(true);
     props.onPause?.();
-    // 多轮记忆：随请求发送当前记忆快照（成功后追加本轮）
-    const historySnapshot = req.term ? [] : dialogue.slice(-DIALOGUE_MAX_TURNS);
-    const askReq: ExplainRequest = { ...req, history: historySnapshot };
+    // 多轮记忆（SPEC-14 store 化）：随请求发送窗口内轮次 + 会话摘要
+    const mem = videoId ? getDialogue(videoId) : { summary: '', turns: [] };
+    const askReq: ExplainRequest = {
+      ...req,
+      history: req.term ? [] : mem.turns.slice(-MEM_MAX_TURNS),
+      sessionSummary: req.term ? undefined : mem.summary || undefined,
+      quote: req.quote ?? (props.quote ?? undefined),
+    };
     pushMessage({
       id: nextId(),
       role: 'user',
@@ -432,10 +456,13 @@ export function ChatTab(props: ChatTabProps) {
         });
       } else if (res.answer) {
         const full = res.answer.answer;
-        // 问答成功 → 入记忆（保持最近 N 轮；术语解释不入）
-        setDialogue((prev) =>
-          [...prev, { q: req.question, a: digestSegmentAnswer(res.answer!) }].slice(-DIALOGUE_MAX_TURNS),
-        );
+        // 问答成功 → 入记忆（store；术语解释不入）。溢出滚动压缩（SPEC-14）
+        if (videoId) {
+          const turn = { q: req.question, a: digestSegmentAnswer(res.answer!) };
+          const { evicted, summary } = memAppendTurn(videoId, turn);
+          setDialogue(getDialogue(videoId).turns);
+          if (evicted) void compactDialogue(videoId, summary, evicted);
+        }
         pushMessage({
           id: nextId(),
           role: 'assistant',
@@ -488,9 +515,20 @@ export function ChatTab(props: ChatTabProps) {
   useEffect(() => {
     let cancelled = false;
     setMessages([]);
-    setDialogue([]);
+    if (!videoId) {
+      setDialogue([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    // SPEC-14 记忆恢复：模块级 store 优先（切 Tab 回来不失忆）；
+    // store 空（面板重载后）则从 qaHistory 重建最近窗口
+    const existing = getDialogue(videoId);
+    if (existing.turns.length > 0) {
+      setDialogue(existing.turns);
+    }
     const load = loadHistoryRef.current;
-    if (!videoId || !load) {
+    if (!load) {
       return () => {
         cancelled = true;
       };
@@ -502,6 +540,17 @@ export function ChatTab(props: ChatTabProps) {
         setMessages(restored);
         const maxId = restored.reduce((max, m) => (m.id > max ? m.id : max), 0);
         if (maxId >= nextIdRef.current) nextIdRef.current = maxId + 1;
+        // store 为空时从历史重建记忆（问答记录 → 窗口内轮次）
+        if (getDialogue(videoId).turns.length === 0 && records && records.length > 0) {
+          const turns = (records ?? [])
+            .filter((r) => r.interactionType !== 'term')
+            .slice(-MEM_MAX_TURNS)
+            .map((r) => ({ q: r.question, a: digestSegmentAnswer({ answer: r.answer }) }));
+          if (turns.length > 0) {
+            memSetDialogue(videoId, turns);
+            setDialogue(turns);
+          }
+        }
       })
       .catch(() => {
         /* 读取失败不打断面板 */
@@ -608,6 +657,13 @@ export function ChatTab(props: ChatTabProps) {
   /** 角色条文案（未注入 persona 时为 null，不渲染，旧行为兼容） */
   const personaLine = formatPersonaLine(props.persona);
 
+  /** 时间胶囊文案（SPEC-14）：只显示当前窗口，细节收进浮层 */
+  const windowLabel = (): string => {
+    if (rangeMode === 'around') return '播放位置±30s';
+    if (rangeMode === 'chapter') return '当前整章';
+    return `${formatMmSs(displayRange[0])}-${formatMmSs(displayRange[1])}`;
+  };
+
   const handleSend = (): void => {
     const hasUploads = uploads.length > 0 || textUploads.length > 0;
     // 只传附件、不打字也能发：默认问题是"请讲解这道题"
@@ -686,6 +742,16 @@ export function ChatTab(props: ChatTabProps) {
     e.preventDefault();
     void addFiles(files);
   };
+
+  // 引用到达（SPEC-14）：时间窗口自动切到引用章节区间（用户仍可手动改）
+  useEffect(() => {
+    if (!props.quote) return;
+    setRangeMode('custom');
+    setCustomStartText(formatMmSs(props.quote.rangeMs[0]));
+    setCustomEndText(formatMmSs(props.quote.rangeMs[1]));
+    setWindowOpen(false);
+    setPersonaOpen(false);
+  }, [props.quote]);
 
   /** 重判角色（可带用户补充说明；失败不弹错，角色条保持原状，红线 8） */
   const handleRefreshPersona = (hint?: string): void => {
@@ -834,6 +900,26 @@ export function ChatTab(props: ChatTabProps) {
 
       {/* 输入区（composer 卡片）：附件条 → 输入行 → 工具行（区间 / 角色 / 模型） */}
       <div className="chat-composer">
+        {props.quote && (
+          <div className="chat-quote-chip" title={`${props.quote.sectionTitle} · ${props.quote.bulletText ?? '整章'}`}>
+            <span className="chat-quote-icon">📎</span>
+            <span className="chat-quote-text">
+              引用 · {props.quote.sectionTitle}
+              {props.quote.bulletText ? ` ·「${props.quote.bulletText.slice(0, 24)}${props.quote.bulletText.length > 24 ? '…' : ''}」` : ''}
+            </span>
+            {props.onClearQuote && (
+              <button
+                type="button"
+                className="chat-upload-remove"
+                aria-label="移除引用"
+                onClick={props.onClearQuote}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
         {(uploads.length > 0 || textUploads.length > 0 || uploadError) && (
           <div className="chat-upload-strip">
             {uploads.map((u) => (
@@ -929,72 +1015,104 @@ export function ChatTab(props: ChatTabProps) {
         </div>
 
         <div className="chat-toolbar">
-          <div className="chat-range-bar">
-            <label className="chat-range-option">
-              <input
-                type="radio"
-                name="chat-range-mode"
-                checked={rangeMode === 'around'}
-                onChange={() => setRangeMode('around')}
-              />
-              播放位置±30s
-            </label>
-            <label className="chat-range-option">
-              <input
-                type="radio"
-                name="chat-range-mode"
-                checked={rangeMode === 'chapter'}
-                onChange={() => setRangeMode('chapter')}
-              />
-              当前整章
-            </label>
-            <label className="chat-range-option">
-              <input
-                type="radio"
-                name="chat-range-mode"
-                checked={rangeMode === 'custom'}
-                onChange={() => setRangeMode('custom')}
-              />
-              自定义
-            </label>
-            {rangeMode === 'custom' && (
-              <span className="chat-range-custom">
-                <input
-                  className="chat-range-input"
-                  value={customStartText}
-                  placeholder="mm:ss"
-                  onChange={(e) => setCustomStartText(e.target.value)}
-                />
-                <span>–</span>
-                <input
-                  className="chat-range-input"
-                  value={customEndText}
-                  placeholder="mm:ss"
-                  onChange={(e) => setCustomEndText(e.target.value)}
-                />
-              </span>
+          {/* 时间窗口胶囊：平时只显示当前窗口，点击浮层重选（SPEC-14 UI 瘦身） */}
+          <div className="chat-pill-wrap">
+            <button
+              type="button"
+              className="chat-pill"
+              onClick={() => {
+                setWindowOpen((v) => !v);
+                setPersonaOpen(false);
+              }}
+              title="点击重选提问的时间窗口"
+            >
+              ⏱ {windowLabel()}
+            </button>
+            {windowOpen && (
+              <div className="chat-pill-popover">
+                <button type="button" className={rangeMode === 'around' ? 'active' : ''} onClick={() => { setRangeMode('around'); setWindowOpen(false); }}>
+                  播放位置±30s
+                </button>
+                <button type="button" className={rangeMode === 'chapter' ? 'active' : ''} onClick={() => { setRangeMode('chapter'); setWindowOpen(false); }}>
+                  当前整章
+                </button>
+                <button type="button" className={rangeMode === 'custom' ? 'active' : ''} onClick={() => setRangeMode('custom')}>
+                  自定义区间
+                </button>
+                {props.quote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRangeMode('custom');
+                      setCustomStartText(formatMmSs(props.quote!.rangeMs[0]));
+                      setCustomEndText(formatMmSs(props.quote!.rangeMs[1]));
+                      setWindowOpen(false);
+                    }}
+                  >
+                    引用章节区间
+                  </button>
+                )}
+                {rangeMode === 'custom' && (
+                  <span className="chat-range-custom chat-range-custom-pop">
+                    <input
+                      className="chat-range-input"
+                      value={customStartText}
+                      placeholder="mm:ss"
+                      onChange={(e) => setCustomStartText(e.target.value)}
+                    />
+                    <span>–</span>
+                    <input
+                      className="chat-range-input"
+                      value={customEndText}
+                      placeholder="mm:ss"
+                      onChange={(e) => setCustomEndText(e.target.value)}
+                    />
+                  </span>
+                )}
+                <span className="chat-pill-current">当前 {formatMmSs(displayRange[0])}-{formatMmSs(displayRange[1])}</span>
+              </div>
             )}
           </div>
-          <span className="chat-range-current">
-            {formatMmSs(displayRange[0])}-{formatMmSs(displayRange[1])}
-          </span>
 
+          {/* 角色胶囊：点击浮层展开完整角色 + 重判（含补充输入） */}
           {personaLine && (
-            <div className="chat-persona-bar">
-              <span>{personaLine}</span>
-              {props.onRefreshPersona && (
-                <button
-                  type="button"
-                  className="btn chat-persona-refresh"
-                  disabled={refreshingPersona}
-                  onClick={() => {
-                    if (refreshingPersona) return;
-                    // 二次点击展开补充输入：结合视频内容与用户说明综合判定
-                    setPersonaHintOpen((v) => !v);
-                  }}
-                >
-                  {refreshingPersona ? '重判中…' : '重判角色'}
-                </button>
+            <div className="chat-pill-wrap">
+              <button
+                type="button"
+                className="chat-pill"
+                onClick={() => {
+                  setPersonaOpen((v) => !v);
+                  setWindowOpen(false);
+                }}
+                title={personaLine}
+              >
+                👤 {props.persona?.role ?? '助教'}
+              </button>
+              {personaOpen && (
+                <div className="chat-pill-popover chat-persona-popover">
+                  <span className="chat-persona-line">{personaLine}</span>
+                  {props.onRefreshPersona && (
+                    <div className="chat-persona-rejudge">
+                      <input
+                        className="chat-persona-hint-input"
+                        value={personaHintText}
+                        placeholder="补充期望角色（可留空直接重判）…"
+                        onChange={(e) => setPersonaHintText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRefreshPersona(personaHintText);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={refreshingPersona}
+                        onClick={() => handleRefreshPersona(personaHintText)}
+                      >
+                        {refreshingPersona ? '重判中…' : '重判角色'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -1003,38 +1121,6 @@ export function ChatTab(props: ChatTabProps) {
             <ModelPicker onOpenSettings={props.onOpenSettings} />
           </div>
         </div>
-
-        {personaHintOpen && props.onRefreshPersona && (
-          <div className="chat-persona-hint">
-            <input
-              className="chat-persona-hint-input"
-              value={personaHintText}
-              placeholder="补充你期望的角色（如：以考研数学老师的身份，重点讲解题套路）…可留空直接重判"
-              onChange={(e) => setPersonaHintText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRefreshPersona(personaHintText);
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={refreshingPersona}
-              onClick={() => handleRefreshPersona(personaHintText)}
-            >
-              {refreshingPersona ? '重判中…' : '确认重判'}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setPersonaHintOpen(false);
-                setPersonaHintText('');
-              }}
-            >
-              取消
-            </button>
-          </div>
-        )}
 
         <GenerationBanner module="qa" />
       </div>

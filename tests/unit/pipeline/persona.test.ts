@@ -186,6 +186,7 @@ describe('defaultPersona（确定性降级）', () => {
       role: '课程助教',
       expertise: ['课程内容讲解'],
       style: '结合课程进程逐步说明，先结论后展开',
+      summary: '',
       fallback: true,
       createdAt: new Date(0).toISOString(),
     });

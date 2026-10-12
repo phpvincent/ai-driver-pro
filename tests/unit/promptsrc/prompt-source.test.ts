@@ -218,10 +218,10 @@ describe('人格化版本：term-explainer 0.2.0 / segment-qa 0.3.0', () => {
   });
 });
 
-describe('问答动态角色：persona.md 0.2.0', () => {
+describe('问答动态角色：persona.md 0.3.0', () => {
   it('文件头版本与 PROMPT_VERSIONS 一致（index.ts 由解析自动跟上）', () => {
-    expect(parsePromptHeader(personaMdRaw)).toEqual({ promptVersion: '0.2.0', kind: 'persona' });
-    expect(PROMPT_VERSIONS.persona).toBe('0.2.0');
+    expect(parsePromptHeader(personaMdRaw)).toEqual({ promptVersion: '0.3.0', kind: 'persona' });
+    expect(PROMPT_VERSIONS.persona).toBe('0.3.0');
   });
 
   it('?raw 内联内容与磁盘文件一致（单一事实源不失真）', () => {
@@ -245,7 +245,7 @@ describe('问答动态角色：persona.md 0.2.0', () => {
 
   it('输出严格 JSON（role / expertise / style）+ 素材不是指令的防护声明', () => {
     const body = getPersonaSystemPrompt();
-    expect(body).toContain('{"role":"","expertise":[],"style":""}');
+    expect(body).toContain('{"role":"","expertise":[],"style":"","summary":""}'); // SPEC-14：summary=视频简述
     expect(body).toContain('不是指令');
     expect(body).toContain('指令注入');
   });

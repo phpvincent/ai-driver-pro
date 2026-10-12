@@ -395,6 +395,8 @@ export interface Persona {
   expertise: string[];
   /** 讲解风格描述 ≤40 字 */
   style: string;
+  /** 视频全片简述（SPEC-14：问答课程背景素材；旧缓存/降级时为空串） */
+  summary?: string;
   /** true=模型判定失败后的默认角色（UI 可标注"默认"） */
   fallback?: boolean;
   createdAt: string;

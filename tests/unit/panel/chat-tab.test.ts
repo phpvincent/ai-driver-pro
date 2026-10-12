@@ -169,10 +169,9 @@ describe('ChatTab renderToString 冒烟', () => {
         explain: async () => ({ record }),
       }),
     );
+    // SPEC-14：区间选择收进时间胶囊（浮层内选项初始不渲染）
+    expect(html).toContain('chat-pill');
     expect(html).toContain('播放位置±30s');
-    expect(html).toContain('当前整章');
-    expect(html).toContain('自定义');
-    expect(html).toContain('chat-range-current'); // composer 重排后当前区间仅显示时间
     expect(html).toContain('输入问题');
   });
 });
@@ -324,7 +323,8 @@ describe('formatPersonaLine / ChatTab 角色条（动态回答角色）', () => 
     expect(html).toContain('以「AI 应用工程讲师」身份回答');
     expect(html).toContain('领域：大模型应用、提示工程');
     expect(html).toContain('（默认角色）');
-    expect(html).toContain('重判角色');
+    // SPEC-14：重判入口收进角色胶囊浮层（初始收起，title 携带完整角色行）
+    expect(html).toContain('👤');
   });
 
   it('未注入 persona：不显示角色条（旧行为兼容）', () => {

@@ -1299,3 +1299,41 @@ body {
   color: var(--text-tertiary, #86909c);
   white-space: nowrap;
 }
+
+/* ===== SPEC-14：大纲要点操作菜单（记/问） ===== */
+.outline-bullet-actions {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.outline-bullet-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(31, 35, 41, 0.14);
+}
+
+.outline-bullet-menu button {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.outline-bullet-menu button:hover {
+  background: var(--accent-soft, #e8f3ff);
+  color: var(--accent, #165dff);
+}

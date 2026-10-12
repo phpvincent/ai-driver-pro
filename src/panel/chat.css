@@ -507,3 +507,129 @@
   position: static;
   flex-shrink: 0;
 }
+
+/* ===== SPEC-14：引用条 / 时间与角色胶囊 ===== */
+
+.chat-quote-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--accent-soft, #e8f3ff);
+  border: 1px solid rgba(22, 93, 255, 0.25);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #4e5969);
+}
+
+.chat-quote-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-quote-chip .chat-upload-remove {
+  position: static;
+  flex-shrink: 0;
+}
+
+/* 胶囊（时间窗口 / 角色）与浮层 */
+.chat-pill-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.chat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: var(--bg, #f7f8fa);
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary, #4e5969);
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+  white-space: nowrap;
+}
+
+.chat-pill:hover {
+  border-color: var(--accent, #165dff);
+  color: var(--accent, #165dff);
+}
+
+.chat-pill-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e6eb);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(31, 35, 41, 0.14);
+}
+
+.chat-pill-popover > button {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text, #1f2329);
+}
+
+.chat-pill-popover > button:hover {
+  background: var(--bg, #f7f8fa);
+}
+
+.chat-pill-popover > button.active {
+  background: var(--accent-soft, #e8f3ff);
+  color: var(--accent, #165dff);
+}
+
+.chat-pill-current {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  color: var(--text-tertiary, #86909c);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-range-custom-pop {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+}
+
+.chat-persona-popover {
+  min-width: 260px;
+  max-width: 320px;
+}
+
+.chat-persona-line {
+  padding: 4px 10px 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #4e5969);
+  line-height: 1.5;
+}
+
+.chat-persona-rejudge {
+  display: flex;
+  gap: 6px;
+  padding: 4px 6px 6px;
+}
+
+.chat-persona-rejudge .chat-persona-hint-input {
+  flex: 1;
+  min-width: 0;
+}
