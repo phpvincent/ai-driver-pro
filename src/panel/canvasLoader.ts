@@ -88,6 +88,18 @@ export async function validateMermaid(code: string): Promise<void> {
   await mermaid.parse(code);
 }
 
+/**
+ * 在途生成注册表（视图切换保活）：生成期间用户切到另一视图再切回，
+ * CanvasPanel 会重挂载丢失 busy/rec 状态——挂载时查此表恢复"生成中"，
+ * 并在完成后拿到新图。同 kind+videoId 的并发请求去重（直接复用同一 Promise）。
+ */
+const inflightGenerations = new Map<string, Promise<CanvasRecord>>();
+
+/** 该画布是否有生成正在进行（面板挂载时恢复生成中状态用） */
+export function getCanvasInflight(kind: CanvasKind, videoId: string): Promise<CanvasRecord> | null {
+  return inflightGenerations.get(`gen::${kind}::${videoId}`) ?? null;
+}
+
 /** 生成画布（模型路径）：成功落缓存；模型未配置 / 无章节 / 两次校验失败 throw 可读错误 */
 export async function generateCanvasFor(
   kind: CanvasKind,
@@ -95,6 +107,11 @@ export async function generateCanvasFor(
   sections: Section[],
   videoTitle: string,
 ): Promise<CanvasRecord> {
+  // 去重：同画布已在生成中直接复用（另一视图实例再次触发也不重复烧钱）
+  const existing = getCanvasInflight(kind, videoId);
+  if (existing) return existing;
+
+  const run = (async (): Promise<CanvasRecord> => {
   const settings = await fetchSettings();
   const model = resolveModel(settings);
   if (!model?.apiKey) throw new Error('模型未配置：请先在设置页配置模型');
@@ -183,4 +200,12 @@ export async function generateCanvasFor(
   }
   progress(100, '完成');
   return rec;
+  })();
+
+  inflightGenerations.set(`gen::${kind}::${videoId}`, run);
+  try {
+    return await run;
+  } finally {
+    inflightGenerations.delete(`gen::${kind}::${videoId}`);
+  }
 }
