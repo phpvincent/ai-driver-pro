@@ -465,6 +465,13 @@ export function ChatTab(props: ChatTabProps) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   /** busy 的最新引用（pendingTerm effect 里避免过期闭包） */
   const busyRef = useRef(false);
+  /** 消息滚动容器（自动滚底用） */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 用户是否"贴底"：距底部 < 40px 视为贴底。贴底时新内容自动滚到底；
+   * 用户上翻阅读历史时不打扰（不强制拉回底部）——标准聊天交互。
+   */
+  const stickToBottomRef = useRef(true);
   busyRef.current = busy;
 
   const nextId = (): number => {
@@ -508,6 +515,8 @@ export function ChatTab(props: ChatTabProps) {
       sessionSummary: req.term ? undefined : mem.summary || undefined,
       quote: req.quote ?? (props.quote ?? undefined),
     };
+    // 用户主动发问：强制回到贴底（上翻历史后发问，视口应跳回最新消息）
+    stickToBottomRef.current = true;
     pushMessage({
       id: nextId(),
       role: 'user',
@@ -620,6 +629,8 @@ export function ChatTab(props: ChatTabProps) {
       .then((records) => {
         if (cancelled) return;
         const restored = recordsToMessages(records ?? []);
+        // 历史恢复完成：直接展示最新消息（贴底）
+        stickToBottomRef.current = true;
         setMessages(restored);
         const maxId = restored.reduce((max, m) => (m.id > max ? m.id : max), 0);
         if (maxId >= nextIdRef.current) nextIdRef.current = maxId + 1;
@@ -712,6 +723,18 @@ export function ChatTab(props: ChatTabProps) {
         timerRef.current = null;
       }
     };
+  }, [messages]);
+
+  /**
+   * 自动滚底（SPEC-15 十一轮）：消息变化（新消息/打字机推进/思考步骤更新）
+   * 且用户处于贴底状态时，滚动容器跟随到底。用户上翻阅读历史时不打扰；
+   * 用户自己滚回底部后恢复跟随。
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+    // 依赖打字机推进的 chunkIdx（从 messages 派生，触发即滚）
   }, [messages]);
 
   if (!videoId) {
@@ -849,7 +872,14 @@ export function ChatTab(props: ChatTabProps) {
 
   return (
     <div className="chat-tab">
-      <div className="chat-messages">
+      <div
+        className="chat-messages"
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+      >
         {messages.length === 0 && (
           <div className="chat-empty">针对区间提问，或在字幕 Tab 划词解释术语</div>
         )}
