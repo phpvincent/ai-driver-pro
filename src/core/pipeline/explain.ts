@@ -34,8 +34,11 @@ export type TermPayload = z.infer<typeof TermSchema>;
 export const SegmentAnswerSchema = z.object({
   answer: z.string(),
   keyPoints: z.array(z.string()).max(6),
-  /** 秒，渲染前吸附到最近 Cue */
-  referencedTimestamps: z.array(z.number().int().nonnegative()).max(6),
+  /**
+   * 秒，渲染前吸附到最近 Cue。上限 12（2026-10-13 从 6 放宽：检索增强后素材更丰富，
+   * 模型引用时间戳更密集，紧上限导致整次回答校验失败——上限只防极端值，宁松勿紧）
+   */
+  referencedTimestamps: z.array(z.number().int().nonnegative()).max(12),
   followUpQuestions: z.array(z.string()).max(3),
   coveredByVideo: z.boolean(),
   /** 引用的个人知识库笔记（路径或标题；未引用时省略，见 segment-qa.md 0.2.0） */
@@ -181,11 +184,15 @@ export function parseSegmentAnswerPayload(content: string): SegmentAnswerPayload
 /**
  * 单次调用 + 校验失败附错误重试 1 次（红线 4，同 outline 的重试口径：
  * 仅解析/校验失败重试；modelFn 本身异常直接向上传播）。
+ * onValidationError：两次校验均失败、即将 throw 前回调一次（接线层用它写
+ * LLM 交互日志——请求本身是成功的，chatCompletion 层只会记 ok=true，
+ * 校验错误若不单独留痕，日志里就"看不到失败原因"）。
  */
 async function callModelWithRetry<T>(
   modelFn: ExplainModelFn,
   prompts: { systemPrompt: string; userPrompt: string; images?: ExplainModelImage[] },
   parse: (content: string) => T,
+  onValidationError?: (error: string) => void,
 ): Promise<T> {
   let lastError = '';
   for (let attempt = 0; attempt <= 1; attempt++) {
@@ -204,6 +211,7 @@ async function callModelWithRetry<T>(
       lastError = err instanceof Error ? err.message : String(err);
     }
   }
+  onValidationError?.(lastError);
   throw new Error(`模型输出两次未通过校验：${lastError}`);
 }
 
@@ -215,6 +223,8 @@ export interface ExplainTermArgs {
   getSystemPrompt?: () => string;
   /** 动态角色设定（追加在 system prompt 之后；不传则行为不变） */
   personaInstruction?: string;
+  /** 两次校验均失败时的回调（接线层写 LLM 日志用；不改变 throw 行为） */
+  onValidationError?: (error: string) => void;
   rangePadMs?: number;
   maxChars?: number;
 }
@@ -232,7 +242,7 @@ export async function explainTerm(args: ExplainTermArgs): Promise<TermPayload> {
     userPrompt: appendImageNote(base.userPrompt, args.input.images, args.input.cues),
     images: args.input.images,
   };
-  return callModelWithRetry(args.modelFn, prompts, parseTermPayload);
+  return callModelWithRetry(args.modelFn, prompts, parseTermPayload, args.onValidationError);
 }
 
 export interface AnswerSegmentArgs {
@@ -243,6 +253,8 @@ export interface AnswerSegmentArgs {
   getSystemPrompt?: () => string;
   /** 动态角色设定（追加在 system prompt 之后；不传则行为不变） */
   personaInstruction?: string;
+  /** 两次校验均失败时的回调（接线层写 LLM 日志用；不改变 throw 行为） */
+  onValidationError?: (error: string) => void;
   rangePadMs?: number;
   maxChars?: number;
 }
@@ -260,7 +272,7 @@ export async function answerSegment(args: AnswerSegmentArgs): Promise<SegmentAns
     userPrompt: appendImageNote(base.userPrompt, args.input.images, args.input.cues),
     images: args.input.images,
   };
-  return callModelWithRetry(args.modelFn, prompts, parseSegmentAnswerPayload);
+  return callModelWithRetry(args.modelFn, prompts, parseSegmentAnswerPayload, args.onValidationError);
 }
 
 /**
