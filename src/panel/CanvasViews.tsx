@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Markmap } from 'markmap-view';
 import type { CanvasKind } from '../core/pipeline/freeCanvas';
 import type { Section } from '../types';
-import { generateCanvasFor, getCanvasCached, type CanvasRecord } from './canvasLoader';
+import { generateCanvasFor, getCanvasCached, getCanvasInflight, type CanvasRecord } from './canvasLoader';
 import { canvasDownloadFileName } from '../core/pipeline/freeCanvas';
 import { downloadTextFile } from '../platform/files';
 import { GenerationProgress } from './GenerationProgress';
@@ -42,6 +42,24 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
     setRenderError(null);
     if (!videoId) return;
     let cancelled = false;
+    // 视图切换保活：该画布有在途生成 → 恢复"生成中"，完成后直接展示新图
+    const inflight = getCanvasInflight(kind, videoId);
+    if (inflight) {
+      setBusy(true);
+      inflight
+        .then((r) => {
+          if (!cancelled) setRec(r);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          if (!cancelled) setBusy(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     void getCanvasCached(kind, videoId).then((r) => {
       if (!cancelled && r) setRec(r);
     });
