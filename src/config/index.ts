@@ -291,6 +291,9 @@ export const FRAME_DENSE_BOOST = 1.5;
 export const OBSIDIAN = {
   baseUrl: 'http://127.0.0.1:27123', // Local REST API 的 HTTP 模式端口（HTTPS 模式为 27124）
   requestTimeoutMs: 8_000,
+  /** 设置页指引链接（红线 9：URL 唯一来源） */
+  downloadUrl: 'https://obsidian.md',
+  pluginUrl: 'https://github.com/coddingtonbear/obsidian-local-rest-api',
 } as const;
 
 /** 大纲笔记（SPEC-09）：重新归位算法常量（spec §3.3 用户确认值） */
