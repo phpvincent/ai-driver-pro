@@ -186,6 +186,35 @@ body {
   color: #86909c;
 }
 
+/* 分步指引（Obsidian 5 步上手）：折叠默认不占空间，展开面向新用户 */
+.settings-guide {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #4e5969;
+}
+
+.settings-guide summary {
+  cursor: pointer;
+  color: #165dff;
+  user-select: none;
+}
+
+.settings-guide ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.6;
+}
+
+.settings-guide code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #f2f3f5;
+  font-size: 11px;
+}
+
 .btn {
   padding: 6px 14px;
   border: 1px solid #e5e6eb;

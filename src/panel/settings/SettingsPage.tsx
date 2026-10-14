@@ -877,6 +877,37 @@ export function SettingsPage({
         <p className="settings-hint">
           Local REST API（HTTP 模式）地址 / 密钥 / 笔记根目录；笔记落在「根目录/视频笔记/」与「根目录/术语/」
         </p>
+        <details className="settings-guide">
+          <summary>没配置过 Obsidian？点开 5 步指引</summary>
+          <ol>
+            <li>
+              下载并安装{' '}
+              <a href={OBSIDIAN.downloadUrl} target="_blank" rel="noreferrer">
+                Obsidian（obsidian.md）
+              </a>{' '}
+              → 打开后「创建新仓库」（选一个本地文件夹，随便起名）
+            </li>
+            <li>
+              Obsidian 左下角齿轮（设置）→「第三方插件」→ 关闭安全模式 →「浏览」→ 搜索{' '}
+              <code>Local REST API</code> → 安装并启用
+            </li>
+            <li>
+              在第三方插件列表点 Local REST API 的齿轮进入插件设置：确认「协议」是 HTTP（默认），
+              端口默认 27123 → 本页「接口地址」保持 <code>{OBSIDIAN.baseUrl}</code> 即可
+            </li>
+            <li>
+              插件设置页找到「API Key」→ 点复制 → 粘贴到本页「API Key」
+              （插件主页见{' '}
+              <a href={OBSIDIAN.pluginUrl} target="_blank" rel="noreferrer">
+                GitHub
+              </a>
+              ）
+            </li>
+            <li>
+              「笔记根目录」填一个仓内文件夹名（如 <code>副驾</code>，不存在会自动创建）→ 回本页点「保存」→「测试连接」
+            </li>
+          </ol>
+        </details>
         <label className="field">
           <span>接口地址</span>
           <input
