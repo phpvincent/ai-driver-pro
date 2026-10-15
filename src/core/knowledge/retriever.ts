@@ -283,10 +283,24 @@ export function buildKnowledgeContext(hits: KnowledgeHit[]): string {
 // ---------------------------------------------------------------------------
 
 export interface KnowledgeLintIssue {
-  /** issue: 孤儿概念页 / 断链 / 领域缺失 */
-  kind: 'orphan-concept' | 'broken-entity-link' | 'missing-domain';
+  /** issue: 孤儿概念页 / 断链 / 领域缺失 / 领域近似分裂 */
+  kind: 'orphan-concept' | 'broken-entity-link' | 'missing-domain' | 'duplicated-domain';
   /** 相关条目 path / 概念名 */
   detail: string;
+}
+
+/** 最长公共子序列比例（领域近似检测用；与术语去重同口径阈值 0.8） */
+function lcsRatio(a: string, b: string): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  const prev = new Array<number>(b.length + 1).fill(0);
+  const cur = new Array<number>(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], cur[j - 1]);
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = cur[j];
+  }
+  return cur[b.length] / Math.min(a.length, b.length);
 }
 
 /**
@@ -316,6 +330,15 @@ export function lintKnowledgeIndex(index: KnowledgeIndexFile | null): KnowledgeL
     for (const entity of e.entities ?? []) {
       if (!conceptTitles.has(norm(entity))) {
         issues.push({ kind: 'broken-entity-link', detail: `${e.path} → ${entity}` });
+      }
+    }
+  }
+  // SPEC-17 领域归一：领域名两两近似检测（LCS>0.8 报近似分裂，如 公考_判断推理 vs 公考行测_判断推理）
+  const domains = [...new Set(entries.map((e) => e.domain).filter((d): d is string => !!d))];
+  for (let i = 0; i < domains.length; i += 1) {
+    for (let j = i + 1; j < domains.length; j += 1) {
+      if (lcsRatio(domains[i], domains[j]) > 0.8) {
+        issues.push({ kind: 'duplicated-domain', detail: `${domains[i]} ≈ ${domains[j]}` });
       }
     }
   }

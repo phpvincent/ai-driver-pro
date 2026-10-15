@@ -428,8 +428,8 @@ export function App() {
         // raw 原料层：字幕 cue（App 已加载的即为当前字幕缓存）
         cues,
         // 入库蒸馏回调（loader 不 import providers——模块边界由注入保住；失败由 loader 降级）
-        distill: ({ videoNoteMarkdown, userNotesMarkdown, existingConcepts }) =>
-          distillVideoNote({ videoNoteMarkdown, userNotesMarkdown, existingConcepts, metaTitle: meta.title }),
+        distill: ({ videoNoteMarkdown, userNotesMarkdown, existingConcepts, existingDomains }) =>
+          distillVideoNote({ videoNoteMarkdown, userNotesMarkdown, existingConcepts, existingDomains, metaTitle: meta.title }),
       });
       void trackUsage('save');
       return local ? `未配置知识库同步，已下载 .md：${path}` : `已存入 ${path}`;

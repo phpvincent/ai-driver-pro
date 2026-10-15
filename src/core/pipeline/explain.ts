@@ -227,6 +227,8 @@ export interface DistillArgs {
    * 清单补上这个视角。缺省为空（首个视频入库）。
    */
   existingConcepts?: ReadonlyArray<{ name: string; aliases: string[] }>;
+  /** SPEC-17 领域归一：库内既有领域清单（模型优先复用，防同域异名分裂） */
+  existingDomains?: ReadonlyArray<string>;
   modelFn: ExplainModelFn;
   /** system prompt 单一事实源注入（接线层传 prompts/index getter） */
   getSystemPrompt?: () => string;
@@ -264,6 +266,15 @@ export async function distillForKnowledge(args: DistillArgs): Promise<DistillRes
       ...existing.map((c) =>
         c.aliases.length > 0 ? `- ${c.name}（别名：${c.aliases.join('、')}）` : `- ${c.name}`,
       ),
+    );
+  }
+  const domains = [...new Set((args.existingDomains ?? []).map((d) => d.trim()).filter(Boolean))].slice(0, 30);
+  if (domains.length > 0) {
+    parts.push(
+      '',
+      '## 库内既有领域清单（同一知识域必须复用既有名，禁止同义换名分裂目录）',
+      '',
+      ...domains.map((d) => `- ${d}`),
     );
   }
   const userPrompt = `${parts.join('\n')}\n\n请按系统指令蒸馏，输出严格 JSON。`;
