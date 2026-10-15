@@ -12,20 +12,31 @@
 import { DB } from '../config';
 import {
   applyNotesToMarkdown,
+  AGENTS_MD,
+  AGENTS_MD_PATH,
+  buildConceptPageMarkdown,
   buildIndexMarkdown,
+  buildMocMarkdown,
+  buildRawMarkdown,
   buildTermCardMarkdown,
   buildVideoNoteMarkdown,
+  conceptNotePath,
+  conceptReferenceBlock,
+  DEFAULT_DOMAIN,
   emptyIndexFile,
   findDuplicateTerm,
   INDEX_JSON_NAME,
   INDEX_MD_NAME,
   joinVaultPath,
   localMarkdownFileName,
+  mergeConceptPageMarkdown,
+  mocPath,
   playbackUrl,
   termNotePath,
   upsertIndexEntry,
   vaultPathsFor,
 } from '../core/pipeline/capture';
+import type { DistillResult } from '../core/pipeline/explain';
 import { getNote, putNote, testConnection, type ObsidianFetch } from '../sinks/obsidian';
 import { downloadTextFile } from '../platform/files';
 import { createSubtitleDb, listNotesByVideo } from '../storage/db';
@@ -33,6 +44,7 @@ import type {
   KnowledgeIndexEntry,
   KnowledgeIndexFile,
   ObsidianConfig,
+  OutlineNote,
   Section,
   TermCard,
   VideoMeta,
@@ -197,6 +209,13 @@ export async function saveVideoNoteToObsidian(args: {
   videoId: string;
   meta: VideoMeta;
   sections: Section[];
+  /** SPEC-17：字幕 cue（raw 原料层落盘；不传则跳过 raw） */
+  cues?: ReadonlyArray<{ startMs: number; endMs: number; text: string }>;
+  /**
+   * SPEC-17：入库蒸馏回调（App 层注入——loader 不 import providers，模块边界不变）。
+   * 内部 try/catch 降级：失败 → domain=通用、概念页跳过，笔记照常落盘（用户决策⑤）。
+   */
+  distill?: (videoNoteMarkdown: string, userNotesMarkdown: string) => Promise<DistillResult>;
   fetchFn?: ObsidianFetch;
 }): Promise<SaveNoteResult> {
   const cfg = await getObsidianConfig();
@@ -204,45 +223,153 @@ export async function saveVideoNoteToObsidian(args: {
     return await exportVideoNoteLocal(args);
   }
   const fetchFn = args.fetchFn ?? defaultFetch;
-  const { videoNote } = vaultPathsFor(args.meta, cfg.rootDir);
-  const note = buildVideoNoteMarkdown({
-    meta: args.meta,
-    sections: args.sections,
-    sourceVideoId: args.videoId,
-  });
 
   // 大纲笔记（SPEC-09 9.7）：自动携带该视频全部笔记
   const notes = await listNotesByVideo(db, args.videoId).catch(() => []);
 
-  let markdown = note.markdown;
+  // ---- SPEC-17 蒸馏（Ingest）：领域判定 + 概念抽取；失败降级不阻断 ----
+  const userNotesMd = serializeNotesForDistill(notes);
+  const noteDraft = buildVideoNoteMarkdown({
+    meta: args.meta,
+    sections: args.sections,
+    sourceVideoId: args.videoId,
+  });
+  let domain = DEFAULT_DOMAIN;
+  let concepts: DistillResult['concepts'] = [];
+  if (args.distill) {
+    try {
+      const distilled = await args.distill(noteDraft.markdown, userNotesMd);
+      domain = distilled.domain?.trim() || DEFAULT_DOMAIN;
+      concepts = distilled.concepts ?? [];
+    } catch (err) {
+      // 降级（用户决策⑤）：domain 回落 通用、概念页跳过，笔记照常落盘
+      console.warn('[vsc] distill failed, fallback to plain save', err);
+    }
+  }
+  const paths = vaultPathsFor(args.meta, cfg.rootDir, domain);
+  const { videoNote } = paths;
+
+  let markdown = noteDraft.markdown;
   try {
     const existing = await getNote(cfg, fetchFn, videoNote);
     if (existing.trim().length > 0) {
       // 已有文件：只动笔记区块，手写内容保留（A9）
       markdown = applyNotesToMarkdown(existing, args.meta, args.sections, notes);
     } else {
-      markdown = applyNotesToMarkdown(note.markdown, args.meta, args.sections, notes);
+      markdown = applyNotesToMarkdown(noteDraft.markdown, args.meta, args.sections, notes);
     }
   } catch {
     // 读取失败（404 / 网络）→ 全量生成并内联笔记区块
-    markdown = applyNotesToMarkdown(note.markdown, args.meta, args.sections, notes);
+    markdown = applyNotesToMarkdown(noteDraft.markdown, args.meta, args.sections, notes);
   }
 
   await putNote(cfg, fetchFn, videoNote, markdown);
 
+  // ---- SPEC-17：raw 原料层（只写一次；已存在不覆盖——只读语义）----
+  if (args.cues && args.cues.length > 0) {
+    try {
+      await getNote(cfg, fetchFn, paths.rawNote);
+    } catch {
+      await putNote(cfg, fetchFn, paths.rawNote, buildRawMarkdown({ meta: args.meta, cues: args.cues }));
+    }
+  }
+
+  // ---- SPEC-17：概念页（追加式合并；aliases 只增不删）----
+  for (const concept of concepts) {
+    const ref = conceptReferenceBlock({
+      videoTitle: args.meta.title,
+      anchorSec: concept.anchorSec,
+      sourceExcerpt: concept.sourceExcerpt,
+      // 原话出现在用户笔记序列化里 → user-note（已核验·加权）；否则 raw 溯源
+      sourceType: userNotesMd.includes(concept.sourceExcerpt) ? 'user-note' : 'raw',
+      playbackUrl: playbackUrl(args.meta, concept.anchorSec * 1000),
+    });
+    const cPath = conceptNotePath(concept.name, paths.termDir);
+    try {
+      const existing = await getNote(cfg, fetchFn, cPath);
+      await putNote(
+        cfg,
+        fetchFn,
+        cPath,
+        mergeConceptPageMarkdown({ existing, newAliases: concept.aliases, reference: ref }),
+      );
+    } catch {
+      await putNote(
+        cfg,
+        fetchFn,
+        cPath,
+        buildConceptPageMarkdown({
+          preferred: concept.name,
+          aliases: concept.aliases,
+          definition: concept.definition,
+          broader: concept.broader,
+          domain,
+          reference: ref,
+        }),
+      );
+    }
+  }
+
+  // ---- SPEC-17：AGENTS.md 宪法（权威维护：无则创建、有则覆盖）+ 领域 MOC ----
+  await putNote(cfg, fetchFn, AGENTS_MD_PATH, AGENTS_MD).catch(() => undefined);
+
+  // ---- 索引（机器检索入口）：视频笔记 entry 带 domain/entities；概念页 entry ----
   const file = await readIndex(cfg, fetchFn);
+  const entityNames = concepts.map((c) => c.name);
   const entry: KnowledgeIndexEntry = {
     path: videoNote,
     title: args.meta.title,
     category: 'video-note',
     tags: ['ai', '视频笔记'],
-    terms: note.terms,
-    summaryPreview: note.summaryPreview,
+    terms: noteDraft.terms,
+    summaryPreview: noteDraft.summaryPreview,
     videoId: args.videoId,
     updatedAt: new Date().toISOString(),
+    domain,
+    entities: entityNames.length > 0 ? entityNames : undefined,
   };
-  await writeIndex(cfg, fetchFn, upsertIndexEntry(file, entry));
+  let fileNext = upsertIndexEntry(file, entry);
+  for (const concept of concepts) {
+    const cPath = conceptNotePath(concept.name, paths.termDir);
+    fileNext = upsertIndexEntry(fileNext, {
+      path: cPath,
+      title: concept.name,
+      category: 'concept',
+      tags: ['ai', '概念', domain],
+      terms: [concept.name, ...concept.aliases].filter((t) => t.trim().length > 0),
+      summaryPreview: concept.definition.slice(0, 200),
+      updatedAt: new Date().toISOString(),
+      domain,
+      sourceType: userNotesMd.includes(concept.sourceExcerpt) ? 'user-note' : 'ai-distill',
+      entities: [concept.name],
+    });
+  }
+  await writeIndex(cfg, fetchFn, fileNext);
+
+  // ---- 领域 MOC（人类目录）：存入时重建该领域页 ----
+  await putNote(
+    cfg,
+    fetchFn,
+    mocPath(domain),
+    buildMocMarkdown({ domain, entries: fileNext.entries }),
+  ).catch(() => undefined);
   return { path: videoNote };
+}
+
+/**
+ * 用户笔记与讨论串 → 蒸馏输入序列化（纯函数，导出供单测）：
+ * 笔记正文与每条讨论串回复按序展开——用户批注是最高优先级口径，
+ * 蒸馏 prompt 据此优先采用用户表述，概念引用可标 source: user-note。
+ */
+export function serializeNotesForDistill(notes: OutlineNote[]): string {
+  const parts: string[] = [];
+  for (const n of notes) {
+    parts.push(`### 我：${n.body}`);
+    for (const r of n.replies) {
+      parts.push(r.author === 'assistant' ? `- 助教：${r.body}` : `- 我：${r.body}`);
+    }
+  }
+  return parts.join('\n\n');
 }
 
 /** 本地 .md 下载降级（未配置 Obsidian）：视频笔记 + 大纲笔记区块，同一构建函数 */

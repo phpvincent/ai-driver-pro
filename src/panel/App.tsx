@@ -17,6 +17,7 @@ import { SubtitleTab } from './SubtitleTab';
 import { currentVideoIdRef, currentVideoMetaRef, explain as explainFn } from './explainLoader';
 import { getLastFramePlan } from './framesClient';
 import { saveTermCardToObsidian, saveVideoNoteToObsidian } from './obsidianLoader';
+import { distillVideoNote } from './explainLoader';
 import { applySubjective, applyUsageEvent, createEmptyUsage, type UsageRecord } from '../core/metrics/usage';
 import { createSubtitleDb, getSubtitle, getUsage, saveUsage, listAllUsage } from '../storage/db';
 import { loadLlmLogs } from './llmLogStore';
@@ -416,11 +417,20 @@ export function App() {
     if (fresh) setPersona(fresh);
   };
 
-  /** 存入 Obsidian：视频笔记（大纲 Tab） */
+  /** 存入 Obsidian：视频笔记（大纲 Tab；SPEC-17 存入走 LLM 蒸馏） */
   const handleSaveVideoNote = async (): Promise<string> => {
     if (!meta || !video || sections.length === 0) return '暂无可存的大纲';
     try {
-      const { path, local } = await saveVideoNoteToObsidian({ videoId: video.videoId, meta, sections });
+      const { path, local } = await saveVideoNoteToObsidian({
+        videoId: video.videoId,
+        meta,
+        sections,
+        // raw 原料层：字幕 cue（App 已加载的即为当前字幕缓存）
+        cues,
+        // 入库蒸馏回调（loader 不 import providers——模块边界由注入保住；失败由 loader 降级）
+        distill: (videoNoteMarkdown, userNotesMarkdown) =>
+          distillVideoNote({ videoNoteMarkdown, userNotesMarkdown, metaTitle: meta.title }),
+      });
       void trackUsage('save');
       return local ? `未配置知识库同步，已下载 .md：${path}` : `已存入 ${path}`;
     } catch (err) {

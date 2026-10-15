@@ -147,3 +147,117 @@ describe('buildMocMarkdown / mocPath（领域 MOC）', () => {
     expect(mocPath('A/B')).toBe('索引/MOC-A_B.md');
   });
 });
+
+// ---------------------------------------------------------------------------
+// SPEC-17 批 2：概念页构建 / 追加式合并 / 用户笔记序列化 / 蒸馏解析
+// ---------------------------------------------------------------------------
+import {
+  buildConceptPageMarkdown,
+  conceptNotePath,
+  conceptReferenceBlock,
+  mergeConceptPageMarkdown,
+} from '../../../src/core/pipeline/capture';
+import { serializeNotesForDistill } from '../../../src/panel/obsidianLoader';
+import { parseDistillResult } from '../../../src/core/pipeline/explain';
+
+describe('概念页（术语表节点）', () => {
+  const ref = conceptReferenceBlock({
+    videoTitle: '图形推理',
+    anchorSec: 303,
+    sourceExcerpt: '先横再竖是通用解法',
+    sourceType: 'raw',
+    playbackUrl: 'https://www.bilibili.com/video/BV1xx/?p=1&t=303',
+  });
+
+  it('新建：五字段 frontmatter + 划界定义待核验 callout + 首条引用', () => {
+    const md = buildConceptPageMarkdown({
+      preferred: '排除法',
+      aliases: ['排除选项法'],
+      definition: '排除法是逐一排除不可能选项的演绎方法；与代入验证的差异在于方向相反。',
+      broader: '演绎推理',
+      domain: '逻辑学',
+      reference: ref,
+    });
+    expect(md).toContain('preferred: 排除法');
+    expect(md).toContain('aliases: [排除选项法]');
+    expect(md).toContain('broader: 演绎推理');
+    expect(md).toContain('type: concept');
+    expect(md).toContain('> [!note] AI 蒸馏 · 待核验');
+    expect(md).toContain('[05:03](https://www.bilibili.com/video/BV1xx/?p=1&t=303)');
+    expect(md).toContain('source: raw');
+  });
+
+  it('合并：aliases 只增不删 + 引用记录文末追加；定义与手写内容不触碰', () => {
+    const existing = buildConceptPageMarkdown({
+      preferred: '排除法',
+      aliases: ['排除选项法'],
+      definition: '原定义',
+      broader: '',
+      domain: '逻辑学',
+      reference: ref,
+    });
+    const merged = mergeConceptPageMarkdown({
+      existing,
+      newAliases: ['淘汰法', '排除选项法'], // 后者已存在 → 不重复
+      reference: conceptReferenceBlock({
+        videoTitle: '强化练习',
+        anchorSec: 120,
+        sourceExcerpt: '我的理解是先排掉明显错的',
+        sourceType: 'user-note',
+        playbackUrl: 'https://www.bilibili.com/video/BV1xx/?p=1&t=120',
+      }),
+    });
+    expect(merged).toContain('排除选项法');
+    expect(merged).toContain('淘汰法');
+    expect((merged.match(/排除选项法/g) ?? []).length).toBe(1); // 不重复追加
+    expect(merged).toContain('source: user-note'); // 引用身份保留
+    expect(merged).toContain('原定义'); // 定义未被覆盖
+    expect(merged).toContain('强化练习');
+  });
+
+  it('conceptNotePath：文件名 = 规范名', () => {
+    expect(conceptNotePath('排除法', '术语/逻辑学')).toBe('术语/逻辑学/排除法.md');
+  });
+});
+
+describe('serializeNotesForDistill（用户批注序列化）', () => {
+  it('笔记正文 + 讨论串按序展开；我/助教身份区分', () => {
+    const md = serializeNotesForDistill([
+      {
+        id: 'n1',
+        videoId: 'BV1xx_p1',
+        anchor: { kind: 'section', sectionId: 's1', tMs: 0 },
+        body: '路由配置文件有强制格式吧',
+        createdAt: '2026-10-15T00:00:00Z',
+        updatedAt: '2026-10-15T00:00:00Z',
+        replies: [
+          { id: 'r1', author: 'assistant', body: '助教第一答', createdAt: '2026-10-15T00:00:01Z' },
+          { id: 'r2', author: 'self', body: '我路由文件不叫这个名字可以吗', createdAt: '2026-10-15T00:00:02Z' },
+        ],
+      },
+    ]);
+    expect(md).toContain('### 我：路由配置文件有强制格式吧');
+    expect(md).toContain('- 助教：助教第一答');
+    expect(md).toContain('- 我：我路由文件不叫这个名字可以吗');
+  });
+});
+
+describe('parseDistillResult（蒸馏 schema，红线 4）', () => {
+  it('合法输出通过；超上限概念 / 编造字段被拒', () => {
+    const ok = parseDistillResult(
+      JSON.stringify({
+        domain: '逻辑学',
+        concepts: [
+          { name: '排除法', aliases: ['排除选项法'], definition: '划界定义', broader: '演绎推理', anchorSec: 303, sourceExcerpt: '原句' },
+        ],
+      }),
+    );
+    expect(ok.domain).toBe('逻辑学');
+    expect(ok.concepts[0].name).toBe('排除法');
+
+    expect(() =>
+      parseDistillResult(JSON.stringify({ domain: '逻辑学', concepts: [{ name: '', aliases: [], definition: 'd', broader: '', anchorSec: 1, sourceExcerpt: 's' }] })),
+    ).toThrow();
+    expect(() => parseDistillResult(JSON.stringify({ domain: '逻辑学', concepts: [] , extra: true }))).not.toThrow();
+  });
+});
