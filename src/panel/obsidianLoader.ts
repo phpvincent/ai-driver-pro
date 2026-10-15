@@ -216,7 +216,12 @@ export async function saveVideoNoteToObsidian(args: {
    * SPEC-17：入库蒸馏回调（App 层注入——loader 不 import providers，模块边界不变）。
    * 内部 try/catch 降级：失败 → domain=通用、概念页跳过，笔记照常落盘（用户决策⑤）。
    */
-  distill?: (videoNoteMarkdown: string, userNotesMarkdown: string) => Promise<DistillResult>;
+  distill?: (args: {
+    videoNoteMarkdown: string;
+    userNotesMarkdown: string;
+    /** SPEC-17 概念合并：库内既有概念清单（蒸馏据此判定合并 or 新建） */
+    existingConcepts: ReadonlyArray<{ name: string; aliases: string[] }>;
+  }) => Promise<DistillResult>;
   fetchFn?: ObsidianFetch;
 }): Promise<SaveNoteResult> {
   const cfg = await getObsidianConfig();
@@ -239,7 +244,17 @@ export async function saveVideoNoteToObsidian(args: {
   let concepts: DistillResult['concepts'] = [];
   if (args.distill) {
     try {
-      const distilled = await args.distill(noteDraft.markdown, userNotesMd);
+      // SPEC-17 概念合并：蒸馏前读既有索引，提取全部概念页（名+别名）喂给模型——
+      // 单视频蒸馏看不到全局，清单补上"库里已有什么"的视角，同义概念走合并不新建
+      const existingIndex = await readIndex(cfg, fetchFn).catch(() => null);
+      const existingConcepts = (existingIndex?.entries ?? [])
+        .filter((e) => e.category === 'concept' || e.category === 'term')
+        .map((e) => ({ name: e.title, aliases: e.terms.filter((t) => t !== e.title) }));
+      const distilled = await args.distill({
+        videoNoteMarkdown: noteDraft.markdown,
+        userNotesMarkdown: userNotesMd,
+        existingConcepts,
+      });
       domain = distilled.domain?.trim() || DEFAULT_DOMAIN;
       concepts = distilled.concepts ?? [];
     } catch (err) {

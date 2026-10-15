@@ -543,6 +543,8 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
 export async function distillVideoNote(args: {
   videoNoteMarkdown: string;
   userNotesMarkdown: string;
+  /** SPEC-17 概念合并：库内既有概念清单（透传给蒸馏管线） */
+  existingConcepts?: ReadonlyArray<{ name: string; aliases: string[] }>;
   metaTitle: string;
 }): Promise<DistillResult> {
   const settings = (await fetchSettings()) as unknown as Settings;
@@ -566,6 +568,7 @@ export async function distillVideoNote(args: {
   return await distillForKnowledge({
     videoNoteMarkdown: args.videoNoteMarkdown,
     userNotesMarkdown: args.userNotesMarkdown,
+    existingConcepts: args.existingConcepts,
     metaTitle: args.metaTitle,
     modelFn,
     getSystemPrompt: getDistillSystemPrompt,

@@ -221,6 +221,12 @@ export interface DistillArgs {
   userNotesMarkdown: string;
   /** 视频元信息（标题/UP 主等，辅助领域判定） */
   metaTitle: string;
+  /**
+   * SPEC-17 概念合并：库内既有概念清单（概念名 + 别名，来自机器索引）。
+   * 模型据此判定同义概念走合并（输出既有名）还是新建——单视频蒸馏看不到全局，
+   * 清单补上这个视角。缺省为空（首个视频入库）。
+   */
+  existingConcepts?: ReadonlyArray<{ name: string; aliases: string[] }>;
   modelFn: ExplainModelFn;
   /** system prompt 单一事实源注入（接线层传 prompts/index getter） */
   getSystemPrompt?: () => string;
@@ -247,6 +253,17 @@ export async function distillForKnowledge(args: DistillArgs): Promise<DistillRes
       '## 用户笔记与讨论串（用户批注，最高优先级口径）',
       '',
       args.userNotesMarkdown.slice(0, 2_000),
+    );
+  }
+  const existing = (args.existingConcepts ?? []).filter((c) => c.name.trim().length > 0).slice(0, 50);
+  if (existing.length > 0) {
+    parts.push(
+      '',
+      '## 库内既有概念清单（同义概念必须合并到既有名，不新建重复页）',
+      '',
+      ...existing.map((c) =>
+        c.aliases.length > 0 ? `- ${c.name}（别名：${c.aliases.join('、')}）` : `- ${c.name}`,
+      ),
     );
   }
   const userPrompt = `${parts.join('\n')}\n\n请按系统指令蒸馏，输出严格 JSON。`;
