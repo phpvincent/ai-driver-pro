@@ -25,3 +25,4 @@ tests/fixtures/raw/
 .vscode/
 *.log
 *.timestamp-*.mjs
+release/
