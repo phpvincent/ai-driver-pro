@@ -261,7 +261,8 @@ export function vaultPathsFor(
   /** SPEC-17：蒸馏判定的领域（领域目录自动生长）；缺省回落 通用 */
   domain: string = DEFAULT_DOMAIN,
 ): { videoNote: string; termDir: string; rawNote: string; domainDir: string } {
-  const course = sanitizeFileName(meta.bvid || meta.videoId);
+  // SPEC-17 平台前缀：课程目录 = {platform}_{视频号}（向后兼容多平台；缺省 bilibili）
+  const course = sanitizeFileName(`${meta.platform || 'bilibili'}_${meta.bvid || meta.videoId}`);
   const domainDir = sanitizeFileName(domain || DEFAULT_DOMAIN);
   return {
     videoNote: joinVaultPath(rootDir, NOTE_DIR.video, domainDir, course, `${sanitizeFileName(meta.title)}.md`),

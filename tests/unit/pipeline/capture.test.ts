@@ -38,7 +38,7 @@ const meta = (over: Partial<VideoMeta> = {}): VideoMeta => ({
   cid: 30_000,
   title: 'P2 Agent基本概念',
   durationMs: 1_922_000,
-  url: 'https://www.bilibili.com/video/BV1YG7G6eEPR/',
+  url: 'https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/',
   ...over,
 });
 
@@ -145,17 +145,17 @@ describe('sanitizeFileName', () => {
 describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
   it('默认领域 通用：笔记 笔记/{领域}/{课程}/{标题}.md，术语 概念/{领域}/，raw 同层', () => {
     const paths = vaultPathsFor(meta(), '视频学习副驾');
-    expect(paths.videoNote).toBe('视频学习副驾/笔记/通用/BV1YG7G6eEPR/P2 Agent基本概念.md');
+    expect(paths.videoNote).toBe('视频学习副驾/笔记/通用/bilibili_BV1YG7G6eEPR/P2 Agent基本概念.md');
     expect(paths.termDir).toBe('视频学习副驾/概念/通用');
-    expect(paths.rawNote).toBe('视频学习副驾/raw/通用/BV1YG7G6eEPR/BV1YG7G6eEPR.md');
+    expect(paths.rawNote).toBe('视频学习副驾/raw/通用/bilibili_BV1YG7G6eEPR/BV1YG7G6eEPR.md');
     expect(paths.domainDir).toBe('通用');
   });
 
   it('指定领域：目录随领域生长（逻辑学/编程…）', () => {
     const paths = vaultPathsFor(meta(), 'root', '逻辑学');
-    expect(paths.videoNote).toBe('root/笔记/逻辑学/BV1YG7G6eEPR/P2 Agent基本概念.md');
+    expect(paths.videoNote).toBe('root/笔记/逻辑学/bilibili_BV1YG7G6eEPR/P2 Agent基本概念.md');
     expect(paths.termDir).toBe('root/概念/逻辑学');
-    expect(paths.rawNote).toBe('root/raw/逻辑学/BV1YG7G6eEPR/BV1YG7G6eEPR.md');
+    expect(paths.rawNote).toBe('root/raw/逻辑学/bilibili_BV1YG7G6eEPR/BV1YG7G6eEPR.md');
   });
 
   it('领域名含非法字符被清洗；空领域回落 通用', () => {
@@ -169,20 +169,20 @@ describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
 
   it('标题含非法字符被清洗', () => {
     const paths = vaultPathsFor(meta({ title: 'A/B:概念' }), 'root');
-    expect(paths.videoNote).toBe('root/笔记/通用/BV1YG7G6eEPR/A_B_概念.md');
+    expect(paths.videoNote).toBe('root/笔记/通用/bilibili_BV1YG7G6eEPR/A_B_概念.md');
   });
 
   it('bvid 缺失时回落 videoId 作课程目录', () => {
     const paths = vaultPathsFor(meta({ bvid: '' }), 'root');
-    expect(paths.videoNote).toBe('root/笔记/通用/BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
-    expect(paths.rawNote).toBe('root/raw/通用/BV1YG7G6eEPR_p2/BV1YG7G6eEPR_p2.md');
+    expect(paths.videoNote).toBe('root/笔记/通用/bilibili_BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
+    expect(paths.rawNote).toBe('root/raw/通用/bilibili_BV1YG7G6eEPR_p2/BV1YG7G6eEPR_p2.md');
   });
 });
 
 describe('playbackUrl / videoPageUrl（跳播链接）', () => {
   it('url 带 ?p=，回放链接再带 &t=秒', () => {
-    expect(videoPageUrl(meta())).toBe('https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2');
-    expect(playbackUrl(meta(), 75_000)).toBe('https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2&t=75');
+    expect(videoPageUrl(meta())).toBe('https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2');
+    expect(playbackUrl(meta(), 75_000)).toBe('https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2&t=75');
   });
 
   it('page=1 也显式带 p 参数', () => {
@@ -207,8 +207,8 @@ describe('playbackUrl / videoPageUrl（跳播链接）', () => {
   });
 
   it('SPEC-08 A2：url 已带 p 参数时不重复追加；分 P 与秒数正确', () => {
-    const m = meta({ url: 'https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2' });
-    expect(playbackUrl(m, 61_500)).toBe('https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2&t=61');
+    const m = meta({ url: 'https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2' });
+    expect(playbackUrl(m, 61_500)).toBe('https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2&t=61');
     // url 带的 p 与 meta.page 冲突时以 url 为准（用户实际所在页）
     expect(videoPageUrl(meta({ url: 'https://www.bilibili.com/video/BV1/?p=5', page: 2 }))).toBe(
       'https://www.bilibili.com/video/BV1/?p=5',
@@ -229,7 +229,7 @@ describe('buildVideoNoteMarkdown', () => {
     const fm = parseFrontmatter(markdown);
     expect(fm.title).toBe('P2 Agent基本概念');
     expect(fm.source).toBe('bilibili');
-    expect(fm.url).toBe('https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2');
+    expect(fm.url).toBe('https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2');
     expect(fm.video_id).toBe('BV1YG7G6eEPR_p2');
     expect(fm.duration).toBe('1922');
     expect(fm.created).toBe('2026-09-30');
@@ -248,7 +248,7 @@ describe('buildVideoNoteMarkdown', () => {
   it('来源链接与要点含 ?p=&t= 回放锚点', () => {
     const { markdown } = buildVideoNoteMarkdown(args);
     expect(markdown).toContain('?p=2&t=0');
-    expect(markdown).toContain('[01:15](https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2&t=75)');
+    expect(markdown).toContain('[01:15](https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2&t=75)');
   });
 
   it('terms 为全片去重数组', () => {
@@ -315,7 +315,7 @@ describe('buildTermCardMarkdown', () => {
     expect(markdown).toContain('## 通用定义');
     expect(markdown).toContain('## 类比');
     expect(markdown).toContain('- 工作流');
-    expect(markdown).toContain('在《P2 Agent基本概念》中出现于 [01:15](https://www.bilibili.com/video/BV1YG7G6eEPR/?p=2&t=75)');
+    expect(markdown).toContain('在《P2 Agent基本概念》中出现于 [01:15](https://www.bilibili.com/video/bilibili_BV1YG7G6eEPR/?p=2&t=75)');
   });
 
   it('summaryPreview ≤200 字且非空', () => {

@@ -15,6 +15,8 @@ export interface VideoMeta {
   title: string;
   durationMs: number;
   url: string;
+  /** 来源平台（SPEC-17：课程目录前缀，向后兼容多平台；缺省 bilibili） */
+  platform?: string;
 }
 
 export interface Cue {
