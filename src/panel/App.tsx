@@ -657,6 +657,7 @@ export function App() {
             {effectiveTab === 'outline' && (
               <OutlineTab
                 videoId={video?.videoId ?? null}
+                cues={cues}
                 meta={meta}
                 positionMs={playback?.positionMs ?? 0}
                 onRequestSeek={handleRequestSeek}

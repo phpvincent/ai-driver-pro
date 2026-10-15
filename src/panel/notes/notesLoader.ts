@@ -157,19 +157,53 @@ function rangeOfNote(note: OutlineNote, sections: Section[]): [number, number] |
 }
 
 /**
- * 「请助教回答」：笔记正文作为问题、区间 = 锚点所在章节，走既有 explain
- * 管线（知识库 / 公开资料 / 画面全链路 + qaHistory 落库）；回答作为
- * author=assistant 的回复追加进讨论串，返回更新后的笔记。
+ * 讨论串上下文组装（SPEC-16 六轮，纯函数导出供单测）：
+ * - **最后一条用户追问为主问题**（此前行为只看笔记正文，追问被无视）；
+ * - 笔记正文与之前的问答对转为 history 多轮记忆，随 explain 传入；
+ * - 无用户追问时维持原行为（笔记正文即问题，history 为空）。
+ */
+export function buildThreadContext(note: OutlineNote): {
+  question: string;
+  history: Array<{ q: string; a: string }>;
+} {
+  const lastSelfIdx = note.replies.reduce(
+    (acc, r, i) => (r.author === 'self' ? i : acc),
+    -1,
+  );
+  if (lastSelfIdx < 0) return { question: note.body, history: [] };
+  const history: Array<{ q: string; a: string }> = [];
+  let pendingQ: string = note.body;
+  for (let i = 0; i < lastSelfIdx; i += 1) {
+    const r = note.replies[i];
+    if (r.author === 'assistant') {
+      if (pendingQ) {
+        history.push({ q: pendingQ, a: r.body });
+        pendingQ = '';
+      }
+    } else {
+      // 用户连续追问（上一问未被回答）→ 旧问保留在 history，新问覆盖为待答
+      pendingQ = r.body;
+    }
+  }
+  return { question: note.replies[lastSelfIdx].body, history };
+}
+
+/**
+ * 「请助教回答」：讨论串上下文（最后追问为主 + 前序转多轮记忆）+ 区间 =
+ * 锚点所在章节，走既有 explain 管线（知识库 / 公开资料 / 画面全链路 +
+ * qaHistory 落库）；回答作为 author=assistant 的回复追加进讨论串。
  */
 export async function askAssistantForNote(
   note: OutlineNote,
   sections: Section[],
 ): Promise<OutlineNote> {
   const rangeMs = rangeOfNote(note, sections);
+  const { question, history } = buildThreadContext(note);
   const res = await explain({
-    question: note.body,
+    question,
     rangeMs,
     positionMs: note.anchor.tMs,
+    history,
   });
   const body =
     res.answer?.answer?.trim() ||
