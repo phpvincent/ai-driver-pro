@@ -14,5 +14,5 @@
     "skipLibCheck": true
   },
   "include": ["src", "tests"],
-  "exclude": ["companion", "dist", "node_modules", "tests/unit/companion"]
+  "exclude": ["dist", "node_modules"]
 }

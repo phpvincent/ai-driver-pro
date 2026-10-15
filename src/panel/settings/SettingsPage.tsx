@@ -724,9 +724,10 @@ export function SettingsPage({
             <ol>
               <li>
                 <a href={COMPANION.downloadUrl} target="_blank" rel="noreferrer">
-                  下载本地知识库服务（GitHub Releases）
+                  下载本地知识库服务（GitHub 仓库 companion/bin 目录）
                 </a>{' '}
-                → 选你系统的版本（Windows 选 vsc-knowledge-win64.exe / macOS 选 vsc-knowledge-macos）
+                → 选你系统的版本：Windows 选 vsc-knowledge-win64.exe；Mac（M 系列）选 vsc-knowledge-macos-arm64、
+                （Intel）选 vsc-knowledge-macos-x64；Linux 选 vsc-knowledge-linux
                 → 双击运行。首次运行 macOS 可能提示「无法验证开发者」：右键 → 打开 → 再点打开
               </li>
               <li>
