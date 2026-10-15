@@ -304,8 +304,8 @@ export const OBSIDIAN = {
 export const COMPANION = {
   baseUrl: 'http://127.0.0.1:28123',
   requestTimeoutMs: 8_000,
-  /** companion 二进制下载页（GitHub Releases；设置页引导链接） */
-  downloadUrl: 'https://github.com/phpvincent/ai-driver-pro/releases',
+  /** companion 程序下载目录（GitHub 仓库 companion/bin/，随代码入库——推代码即发布） */
+  downloadUrl: 'https://github.com/phpvincent/ai-driver-pro/tree/main/companion/bin',
 } as const;
 
 /** 大纲笔记（SPEC-09）：重新归位算法常量（spec §3.3 用户确认值） */
