@@ -18,6 +18,7 @@ import { currentVideoIdRef, currentVideoMetaRef, explain as explainFn } from './
 import { getLastFramePlan } from './framesClient';
 import { saveTermCardToObsidian, saveVideoNoteToObsidian } from './obsidianLoader';
 import { distillVideoNote } from './explainLoader';
+import type { KnowledgeLintIssue } from '../core/knowledge/retriever';
 import { applySubjective, applyUsageEvent, createEmptyUsage, type UsageRecord } from '../core/metrics/usage';
 import { createSubtitleDb, getSubtitle, getUsage, saveUsage, listAllUsage } from '../storage/db';
 import { loadLlmLogs } from './llmLogStore';
@@ -421,7 +422,7 @@ export function App() {
   const handleSaveVideoNote = async (): Promise<string> => {
     if (!meta || !video || sections.length === 0) return '暂无可存的大纲';
     try {
-      const { path, local } = await saveVideoNoteToObsidian({
+      const { path, local, lintIssues } = await saveVideoNoteToObsidian({
         videoId: video.videoId,
         meta,
         sections,
@@ -432,7 +433,25 @@ export function App() {
           distillVideoNote({ videoNoteMarkdown, userNotesMarkdown, existingConcepts, existingDomains, metaTitle: meta.title }),
       });
       void trackUsage('save');
-      return local ? `未配置知识库同步，已下载 .md：${path}` : `已存入 ${path}`;
+      const lintHint = (issues: KnowledgeLintIssue[] | undefined) =>
+        issues?.length
+          ? `（体检提示：${issues
+              .slice(0, 2)
+              .map(
+                (i: KnowledgeLintIssue) =>
+                  (i.kind === 'orphan-concept'
+                    ? '孤儿概念页 '
+                    : i.kind === 'broken-entity-link'
+                      ? '断链 '
+                      : i.kind === 'duplicated-domain'
+                        ? '领域近似分裂 '
+                        : '领域缺失 ') + i.detail,
+              )
+              .join('；')}${issues.length > 2 ? ` 等 ${issues.length} 项` : ''}）`
+          : '';
+      return local
+        ? `未配置知识库同步，已下载 .md：${path}`
+        : `已存入 ${path}${lintHint(lintIssues)}`;
     } catch (err) {
       return `存库失败：${err instanceof Error ? err.message : String(err)}`;
     }
