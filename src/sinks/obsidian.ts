@@ -48,19 +48,24 @@ async function readSummary(res: Response): Promise<string> {
   }
 }
 
-/** 非 2xx 的统一错误文案（按状态码给操作指引） */
-function httpError(status: number, summary: string): Error {
+/** 非 2xx 的统一错误文案：前缀与操作指引按通道区分（SPEC-16：companion / Obsidian） */
+function httpError(status: number, summary: string, kind: 'companion' | 'obsidian' = 'obsidian'): Error {
   const detail = summary ? `: ${summary}` : '';
+  const label = kind === 'companion' ? '本地知识库服务' : 'Obsidian';
   if (status === 401 || status === 403) {
-    return new Error(`Obsidian HTTP ${status}${detail}（鉴权失败：请检查 API Key 是否正确）`);
+    const hint =
+      kind === 'companion'
+        ? '鉴权失败：请把 companion 程序窗口打印的 API Key（vsc- 开头）完整粘贴到扩展设置'
+        : '鉴权失败：请检查 Local REST API 的 API Key 是否正确';
+    return new Error(`${label} HTTP ${status}${detail}（${hint}）`);
   }
   if (status === 404) {
-    return new Error(`Obsidian HTTP ${status}${detail}（路径不可写：请检查笔记根目录是否存在）`);
+    return new Error(`${label} HTTP ${status}${detail}（路径不可写：请检查笔记根目录是否存在）`);
   }
   if (status >= 500) {
-    return new Error(`Obsidian HTTP ${status}${detail}（服务端错误：请确认 Obsidian 与 Local REST API 插件正常）`);
+    return new Error(`${label} HTTP ${status}${detail}（服务端错误：请确认知识库服务端正常）`);
   }
-  return new Error(`Obsidian HTTP ${status}${detail}`);
+  return new Error(`${label} HTTP ${status}${detail}`);
 }
 
 /** 网络层失败：文案按通道区分（companion = 本地服务未运行；obsidian = 插件未开 HTTP 模式） */
@@ -92,7 +97,7 @@ export async function putNote(
   } catch (err) {
     throw networkError(err, cfg.kind);
   }
-  if (!res.ok) throw httpError(res.status, await readSummary(res));
+  if (!res.ok) throw httpError(res.status, await readSummary(res), cfg.kind);
 }
 
 /**
@@ -113,7 +118,7 @@ export async function getNote(
   } catch (err) {
     throw networkError(err, cfg.kind);
   }
-  if (!res.ok) throw httpError(res.status, await readSummary(res));
+  if (!res.ok) throw httpError(res.status, await readSummary(res), cfg.kind);
   return await res.text();
 }
 
@@ -134,7 +139,7 @@ export async function testConnection(
   } catch (err) {
     throw networkError(err, cfg.kind);
   }
-  if (!res.ok) throw httpError(res.status, await readSummary(res));
+  if (!res.ok) throw httpError(res.status, await readSummary(res), cfg.kind);
   const rootEntries = await readRootEntries(res);
   return { ok: true, rootEntries };
 }
