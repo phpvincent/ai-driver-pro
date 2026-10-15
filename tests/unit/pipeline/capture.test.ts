@@ -147,7 +147,7 @@ describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
     const paths = vaultPathsFor(meta(), '视频学习副驾');
     expect(paths.videoNote).toBe('视频学习副驾/笔记/通用/bilibili_BV1YG7G6eEPR/P2 Agent基本概念.md');
     expect(paths.termDir).toBe('视频学习副驾/概念/通用');
-    expect(paths.rawNote).toBe('视频学习副驾/raw/通用/bilibili_BV1YG7G6eEPR/BV1YG7G6eEPR.md');
+    expect(paths.rawNote).toBe('视频学习副驾/raw/通用/bilibili_BV1YG7G6eEPR/BV1YG7G6eEPR_p2.md');
     expect(paths.domainDir).toBe('通用');
   });
 
@@ -155,7 +155,7 @@ describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
     const paths = vaultPathsFor(meta(), 'root', '逻辑学');
     expect(paths.videoNote).toBe('root/笔记/逻辑学/bilibili_BV1YG7G6eEPR/P2 Agent基本概念.md');
     expect(paths.termDir).toBe('root/概念/逻辑学');
-    expect(paths.rawNote).toBe('root/raw/逻辑学/bilibili_BV1YG7G6eEPR/BV1YG7G6eEPR.md');
+    expect(paths.rawNote).toBe('root/raw/逻辑学/bilibili_BV1YG7G6eEPR/BV1YG7G6eEPR_p2.md');
   });
 
   it('领域名含非法字符被清洗；空领域回落 通用', () => {
@@ -175,7 +175,7 @@ describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
   it('bvid 缺失时回落 videoId 作课程目录', () => {
     const paths = vaultPathsFor(meta({ bvid: '' }), 'root');
     expect(paths.videoNote).toBe('root/笔记/通用/bilibili_BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
-    expect(paths.rawNote).toBe('root/raw/通用/bilibili_BV1YG7G6eEPR_p2/BV1YG7G6eEPR_p2.md');
+    expect(paths.rawNote).toBe('root/raw/通用/bilibili_BV1YG7G6eEPR_p2/BV1YG7G6eEPR_p2_p2.md');
   });
 });
 

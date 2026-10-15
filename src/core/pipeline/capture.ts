@@ -267,7 +267,15 @@ export function vaultPathsFor(
   return {
     videoNote: joinVaultPath(rootDir, NOTE_DIR.video, domainDir, course, `${sanitizeFileName(meta.title)}.md`),
     termDir: joinVaultPath(rootDir, NOTE_DIR.term, domainDir),
-    rawNote: joinVaultPath(rootDir, NOTE_DIR.raw, domainDir, course, `${sanitizeFileName(meta.bvid || meta.videoId)}.md`),
+    // raw 按 P 分文件：多 P 课程每 P 一份原文（只读语义=写一次，若全课程一个文件，
+    // 第二个 P 会因"已存在"被跳过导致字幕丢失）
+    rawNote: joinVaultPath(
+      rootDir,
+      NOTE_DIR.raw,
+      domainDir,
+      course,
+      `${sanitizeFileName(meta.bvid || meta.videoId)}_p${meta.page}.md`,
+    ),
     domainDir,
   };
 }
