@@ -224,6 +224,8 @@ export interface ObsidianConfig {
   rootDir: string;
   /** 暂时停用（SPEC-10 二轮冒烟：关掉后存入走本地 .md 下载，凭据保留不擦除） */
   enabled?: boolean;
+  /** 知识库通道（SPEC-16）：companion 本地服务（默认）或 Obsidian 直连（同一套协议） */
+  kind?: 'companion' | 'obsidian';
 }
 
 // ---------------------------------------------------------------------------

@@ -257,6 +257,44 @@ body {
   margin: 0;
 }
 
+/* 通道互斥选择（companion / Obsidian）：分段控件，选中态高亮 */
+.knowledge-sink-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.knowledge-sink-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  color: #4e5969;
+  cursor: pointer;
+}
+
+.knowledge-sink-tab small {
+  font-size: 11px;
+  color: #86909c;
+}
+
+.knowledge-sink-tab.active {
+  border-color: #165dff;
+  background: #f2f7ff;
+  color: #165dff;
+  font-weight: 600;
+}
+
+.knowledge-sink-tab.active small {
+  color: #165dff;
+}
+
 .btn {
   padding: 6px 14px;
   border: 1px solid #e5e6eb;

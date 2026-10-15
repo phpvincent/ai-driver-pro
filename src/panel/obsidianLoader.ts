@@ -139,7 +139,7 @@ export async function testObsidianConnection(
 async function requireConfig(): Promise<ObsidianConfig> {
   const cfg = await getObsidianConfig();
   if (!cfg || !cfg.baseUrl || !cfg.apiKey) {
-    throw new Error('未配置 Obsidian：请先在设置页填写接口地址、API Key 与笔记根目录');
+    throw new Error('未配置知识库同步：请先在设置页（个人知识库）填写接口地址、API Key 与笔记根目录');
   }
   return cfg;
 }

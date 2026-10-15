@@ -329,7 +329,7 @@ interface ChatMessage {
   attachments?: string[];
   /** 思考过程简报（SPEC-15：回答完成后可展开回看；历史恢复无） */
   steps?: string[];
-  /** 存库（存入 Obsidian）状态与行内结果（红线 8：失败不打断面板） */
+  /** 存库（存入知识库）状态与行内结果（红线 8：失败不打断面板） */
   saving?: boolean;
   savedText?: string;
   saveError?: string;
@@ -660,7 +660,7 @@ export function ChatTab(props: ChatTabProps) {
   };
 
   /**
-   * 单条 AI 回答存入 Obsidian：术语走 term 卡（带术语名），区间问答走 segment。
+   * 单条 AI 回答存入知识库：术语走 term 卡（带术语名），区间问答走 segment。
    * 重复术语 throw（"已存在相似术语…"）时行内展示，不弹窗不打断。
    */
   const handleSaveNote = (m: ChatMessage): void => {
@@ -672,7 +672,7 @@ export function ChatTab(props: ChatTabProps) {
       term: m.kind === 'term' ? m.term?.term : undefined,
       payload: m.kind === 'term' ? m.term : m.answer,
     })
-      .then((path) => patchSave(m.id, { saving: false, savedText: path ? `已存入：${path}` : '已存入 Obsidian' }))
+      .then((path) => patchSave(m.id, { saving: false, savedText: path ? `已存入：${path}` : '已存入知识库' }))
       .catch((err: unknown) =>
         patchSave(m.id, {
           saving: false,
@@ -1058,7 +1058,7 @@ export function ChatTab(props: ChatTabProps) {
                         disabled={m.saving}
                         onClick={() => handleSaveNote(m)}
                       >
-                        {m.saving ? '存入中…' : '存入 Obsidian'}
+                        {m.saving ? '存入中…' : '存入知识库'}
                       </button>
                       {m.savedText && <span className="chat-save-ok">{m.savedText}</span>}
                       {m.saveError && <span className="chat-save-error">{m.saveError}</span>}
