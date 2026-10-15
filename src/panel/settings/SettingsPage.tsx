@@ -25,7 +25,7 @@ import { chatCompletion } from '../../core/harness/modelClient';
 import { BOCHA, COMPANION, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
-import { checkKnowledgeHealth, saveKnowledgeConfig, testObsidianConnection } from '../obsidianLoader';
+import { checkKnowledgeHealth, repairKnowledgeHealth, saveKnowledgeConfig, testObsidianConnection } from '../obsidianLoader';
 import type { KnowledgeLintIssue } from '../../core/knowledge/retriever';
 import { searchBocha } from '../../core/knowledge/webSearch';
 import { downloadBackup, importBackup } from '../dataBackup';
@@ -191,6 +191,9 @@ export function SettingsPage({
   /** 知识库体检（SPEC-17 Lint v1）：进行中 / 问题清单 */
   const [lintBusy, setLintBusy] = useState(false);
   const [lintIssues, setLintIssues] = useState<KnowledgeLintIssue[] | null>(null);
+  /** 体检修复（SPEC-17 v2）：进行中 / 修复报告文案 */
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairText, setRepairText] = useState<string | null>(null);
   /** 问答时检索个人知识库（默认开启，与 Obsidian 配置一起保存） */
   const [knowledgeSearch, setKnowledgeSearch] = useState<boolean>(true);
   /** 博查搜索增强 Key（SPEC-15：国内方案，可选；配置后公开资料升级为专业搜索） */
@@ -874,6 +877,53 @@ export function SettingsPage({
             {lintBusy ? '体检中…' : '知识库体检'}
           </button>
         </div>
+        {lintIssues && lintIssues.length > 0 && (
+          <div className="field-row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              title="补全领域 / 移除断链引用 / 清理纯 AI 孤儿概念页（人工改写过的保留）"
+              disabled={repairBusy}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    `一键修复 ${lintIssues.length} 个问题？` +
+                      '\n· 领域缺失 → 自动补全' +
+                      '\n· 断链 → 移除引用（重新存入可重建）' +
+                      '\n· 孤儿概念页 → 仅删纯 AI 页，你改写过的保留',
+                  )
+                ) {
+                  return;
+                }
+                setRepairBusy(true);
+                setRepairText(null);
+                void repairKnowledgeHealth()
+                  .then((r) => {
+                    if (!r) {
+                      setRepairText('未配置知识库或索引为空，无法修复');
+                      return;
+                    }
+                    const parts: string[] = [];
+                    if (r.fixedDomains > 0) parts.push(`补全领域 ${r.fixedDomains} 条`);
+                    if (r.fixedLinks > 0) parts.push(`移除断链 ${r.fixedLinks} 条`);
+                    if (r.cleanedOrphans.length > 0) parts.push(`清理纯 AI 孤儿页 ${r.cleanedOrphans.length} 个`);
+                    if (r.keptManualOrphans.length > 0) {
+                      parts.push(`保留人工改写过的孤儿页 ${r.keptManualOrphans.length} 个（含你的手写内容，未删）`);
+                    }
+                    setRepairText(parts.length > 0 ? `修复完成：${parts.join('；')}` : '没有可自动修复的问题');
+                    void checkKnowledgeHealth().then(setLintIssues);
+                  })
+                  .catch((err: unknown) => {
+                    setRepairText(`修复失败：${err instanceof Error ? err.message : String(err)}`);
+                  })
+                  .finally(() => setRepairBusy(false));
+              }}
+            >
+              {repairBusy ? '修复中…' : '一键修复'}
+            </button>
+          </div>
+        )}
+        {repairText && <p className="settings-hint">{repairText}</p>}
         {lintIssues && (
           <p className="settings-hint">
             {lintIssues.length === 0

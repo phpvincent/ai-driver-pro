@@ -101,6 +101,27 @@ export async function putNote(
 }
 
 /**
+ * 删除一个 vault 文件（SPEC-17 体检修复：孤儿概念页清理；确认后由调用方调用）。
+ * 404 / 其余非 2xx throw；网络失败归入无法连接分支（同写入口径）。
+ */
+export async function deleteNote(
+  cfg: ObsidianConfig,
+  fetchFn: ObsidianFetch,
+  vaultPath: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetchFn(obsidianUrl(cfg.baseUrl, vaultPath), {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
+    });
+  } catch (err) {
+    throw networkError(err, cfg.kind);
+  }
+  if (!res.ok) throw httpError(res.status, await readSummary(res), cfg.kind);
+}
+
+/**
  * 读取一篇笔记正文（索引文件 `_meta/index.json` 也走这里）。
  * 404 与其余非 2xx 均 throw（调用方 readIndex 自行决定降级为空索引）。
  */

@@ -94,13 +94,32 @@ describe('companion HTTP（Local REST API 子集）', () => {
     expect(res.status).toBe(400);
   });
 
-  it('非 /vault 路径 → 404；不支持的动词 → 405', async () => {
+  it('DELETE：写入后删除成功；删除不存在文件 → 404', async () => {
+    const f = `${encodeURIComponent('概念')}/${encodeURIComponent('孤儿.md')}`;
+    await fetch(`${base}/vault/${f}`, { method: 'PUT', headers: auth, body: 'x' });
+    const del = await fetch(`${base}/vault/${f}`, {
+      method: 'DELETE',
+      headers: { Authorization: auth.Authorization },
+    });
+    expect(del.status).toBe(200);
+    // 已删：GET 404
+    const gone = await fetch(`${base}/vault/${f}`, { headers: { Authorization: auth.Authorization } });
+    expect(gone.status).toBe(404);
+    // 再删 → 404
+    const delAgain = await fetch(`${base}/vault/${f}`, {
+      method: 'DELETE',
+      headers: { Authorization: auth.Authorization },
+    });
+    expect(delAgain.status).toBe(404);
+  });
+
+  it('非 /vault 路径 → 404；DELETE 现为合法动词（不存在文件 → 404）', async () => {
     expect((await fetch(`${base}/`, { headers: { Authorization: auth.Authorization } })).status).toBe(404);
     expect(
       (await fetch(`${base}/vault/${encodeURIComponent('a.md')}`, {
         method: 'DELETE',
         headers: { Authorization: auth.Authorization },
       })).status,
-    ).toBe(405);
+    ).toBe(404);
   });
 });

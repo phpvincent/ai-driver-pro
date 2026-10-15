@@ -6,6 +6,7 @@
  *   - GET  /vault/            → 根目录列表 { files: [...] }（测试连接）
  *   - GET  /vault/{path}      → 读文件
  *   - PUT  /vault/{path}      → 写文件（自动创建父目录）
+ *   - DELETE /vault/{path}    → 删除文件（SPEC-17 体检修复：孤儿概念页清理）
  *   - Bearer <key> 鉴权；仅监听 127.0.0.1（不出本机）
  *
  * 数据目录默认 ~/vsc-knowledge（VSC_KNOWLEDGE_DIR 环境变量可覆盖），
@@ -154,6 +155,19 @@ export function createServer(opts: {
           send(500, JSON.stringify({ error: `写入失败：${err instanceof Error ? err.message : String(err)}` }));
         }
       });
+      return;
+    }
+    if (req.method === 'DELETE') {
+      try {
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+          send(404, JSON.stringify({ error: `文件不存在：${vaultPath}` }));
+          return;
+        }
+        fs.unlinkSync(abs);
+        send(200, JSON.stringify({ ok: true }));
+      } catch (err) {
+        send(500, JSON.stringify({ error: `删除失败：${err instanceof Error ? err.message : String(err)}` }));
+      }
       return;
     }
     send(405, JSON.stringify({ error: `不支持的请求方法：${req.method ?? '?'}` }));

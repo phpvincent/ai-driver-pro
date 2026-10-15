@@ -37,8 +37,8 @@ import {
   vaultPathsFor,
 } from '../core/pipeline/capture';
 import type { DistillResult } from '../core/pipeline/explain';
-import { getNote, putNote, testConnection, type ObsidianFetch } from '../sinks/obsidian';
-import { lintKnowledgeIndex, type KnowledgeLintIssue } from '../core/knowledge/retriever';
+import { deleteNote, getNote, putNote, testConnection, type ObsidianFetch } from '../sinks/obsidian';
+import { fixLintIssues, lintKnowledgeIndex, type KnowledgeLintIssue } from '../core/knowledge/retriever';
 import { downloadTextFile } from '../platform/files';
 import { createSubtitleDb, listNotesByVideo } from '../storage/db';
 import type {
@@ -514,4 +514,90 @@ export async function checkKnowledgeHealth(): Promise<KnowledgeLintIssue[]> {
   } catch {
     return [];
   }
+}
+
+/** 体检修复报告（SPEC-17 v2） */
+export interface HealthRepairReport {
+  /** 补全领域条数 */
+  fixedDomains: number;
+  /** 移除断链引用条数 */
+  fixedLinks: number;
+  /** 已删除的纯 AI 孤儿概念页 */
+  cleanedOrphans: string[];
+  /** 含手写内容而保留的孤儿概念页（不误删人的劳动） */
+  keptManualOrphans: string[];
+}
+
+/**
+ * 体检修复（SPEC-17 v2，设置页「一键修复」）：
+ * - 领域补全（笔记按路径解析；概念读文件 frontmatter domains）
+ * - 断链移除引用（index 自洽；重新存入可重建概念页）
+ * - 孤儿概念页：**仅删纯 AI 页**（仍带「AI 蒸馏 · 待核验」标记 = 人没动过）；
+ *   被人改写过的（标记已消失）一律保留报告——宁可留垃圾不删人写的内容
+ * - 写回索引 + 重建涉及领域的 MOC
+ */
+export async function repairKnowledgeHealth(): Promise<HealthRepairReport | null> {
+  const cfg = await getObsidianConfig();
+  if (!cfg || !cfg.baseUrl || !cfg.apiKey) return null;
+  const fetchFn = defaultFetch;
+  const file = await readIndex(cfg, fetchFn);
+  if ((file?.entries ?? []).length === 0) return null;
+
+  // 概念条目缺领域：读文件 frontmatter domains（title → domain 首值）
+  const conceptDomains = new Map<string, string>();
+  const domainRe = /^domains: \[([^\]]*)\]/m;
+  for (const e of file.entries) {
+    if (e.category === 'concept' && !e.domain) {
+      try {
+        const md = await getNote(cfg, fetchFn, e.path);
+        const m = md.match(domainRe);
+        if (m && m[1]) conceptDomains.set(e.title, m[1].split(',')[0].trim());
+      } catch {
+        /* 文件读不到：留给断链/孤儿逻辑处理 */
+      }
+    }
+  }
+
+  const fix = fixLintIssues(file.entries, { conceptDomains });
+  const cleanedOrphans: string[] = [];
+  const keptManualOrphans: string[] = [];
+  const cleanedPaths = new Set<string>();
+  for (const orphanPath of fix.orphanPaths) {
+    try {
+      const md = await getNote(cfg, fetchFn, orphanPath);
+      // 含待核验标记 = 纯 AI 页（人没动过）→ 可删；标记消失 = 人改写过 → 保留
+      if (md.includes('AI 蒸馏 · 待核验')) {
+        await deleteNote(cfg, fetchFn, orphanPath);
+        cleanedOrphans.push(orphanPath);
+        cleanedPaths.add(orphanPath);
+      } else {
+        keptManualOrphans.push(orphanPath);
+      }
+    } catch {
+      keptManualOrphans.push(orphanPath); // 文件不存在/读失败：不删，保守保留
+    }
+  }
+
+  // 写回：修复后的条目（去掉已删孤儿）+ 涉及领域 MOC 重建
+  const finalEntries = fix.entries.filter((e) => !cleanedPaths.has(e.path));
+  const report: HealthRepairReport = {
+    fixedDomains: fix.fixedDomains,
+    fixedLinks: fix.fixedLinks,
+    cleanedOrphans,
+    keptManualOrphans,
+  };
+  if (fix.fixedDomains === 0 && fix.fixedLinks === 0 && cleanedOrphans.length === 0 && keptManualOrphans.length === 0) {
+    return report; // 无变化，不写回
+  }
+  await writeIndex(cfg, fetchFn, { version: 1, entries: finalEntries });
+  const domains = [...new Set(finalEntries.map((e) => e.domain).filter((d): d is string => !!d))];
+  for (const d of domains) {
+    await putNote(
+      cfg,
+      fetchFn,
+      joinVaultPath(cfg.rootDir, mocPath(d)),
+      buildMocMarkdown({ domain: d, entries: finalEntries }),
+    ).catch(() => undefined);
+  }
+  return report;
 }
