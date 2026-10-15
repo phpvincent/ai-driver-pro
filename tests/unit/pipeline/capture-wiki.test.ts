@@ -199,6 +199,7 @@ describe('概念页（术语表节点）', () => {
     const merged = mergeConceptPageMarkdown({
       existing,
       newAliases: ['淘汰法', '排除选项法'], // 后者已存在 → 不重复
+      domain: '逻辑学',
       reference: conceptReferenceBlock({
         videoTitle: '强化练习',
         anchorSec: 120,
@@ -215,8 +216,8 @@ describe('概念页（术语表节点）', () => {
     expect(merged).toContain('强化练习');
   });
 
-  it('conceptNotePath：文件名 = 规范名', () => {
-    expect(conceptNotePath('排除法', '概念/逻辑学')).toBe('概念/逻辑学/排除法.md');
+  it('conceptNotePath：全局唯一不分领域（概念/规范名.md）', () => {
+    expect(conceptNotePath('排除法', 'root')).toBe('root/概念/排除法.md');
   });
 });
 
