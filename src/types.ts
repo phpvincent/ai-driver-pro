@@ -273,8 +273,8 @@ export interface KnowledgeIndexEntry {
   /** 相对 vault 根目录的笔记路径（POSIX） */
   path: string;
   title: string;
-  /** 分类：video-note | term */
-  category: 'video-note' | 'term' | 'note';
+  /** 分类：video-note | term | note | concept（SPEC-17 概念页）| qa（QA 沉淀） */
+  category: 'video-note' | 'term' | 'note' | 'concept' | 'qa';
   tags: string[];
   /** 关键词/术语（检索命中源） */
   terms: string[];
@@ -284,6 +284,12 @@ export interface KnowledgeIndexEntry {
   videoId?: string;
   /** ISO 8601 */
   updatedAt: string;
+  /** 领域（SPEC-17：蒸馏判定的知识领域，目录名；缺省 '通用'） */
+  domain?: string;
+  /** 来源类型（SPEC-17：user-note=用户批注·已核验·检索加权；缺省 ai-distill） */
+  sourceType?: 'ai-distill' | 'user-note';
+  /** 涉及概念名列表（SPEC-17：related 关联链，检索命中时内联返回） */
+  entities?: string[];
 }
 
 export interface KnowledgeIndexFile {
