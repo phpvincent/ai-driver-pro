@@ -300,14 +300,19 @@ export async function saveVideoNoteToObsidian(args: {
       sourceType: userNotesMd.includes(concept.sourceExcerpt) ? 'user-note' : 'raw',
       playbackUrl: playbackUrl(args.meta, concept.anchorSec * 1000),
     });
-    const cPath = conceptNotePath(concept.name, paths.termDir);
+    const cPath = conceptNotePath(concept.name, cfg.rootDir);
     try {
       const existing = await getNote(cfg, fetchFn, cPath);
       await putNote(
         cfg,
         fetchFn,
         cPath,
-        mergeConceptPageMarkdown({ existing, newAliases: concept.aliases, reference: ref }),
+        mergeConceptPageMarkdown({
+          existing,
+          newAliases: concept.aliases,
+          domain,
+          reference: ref,
+        }),
       );
     } catch {
       await putNote(
@@ -347,7 +352,7 @@ export async function saveVideoNoteToObsidian(args: {
   };
   let fileNext = upsertIndexEntry(file, entry);
   for (const concept of concepts) {
-    const cPath = conceptNotePath(concept.name, paths.termDir);
+    const cPath = conceptNotePath(concept.name, cfg.rootDir);
     fileNext = upsertIndexEntry(fileNext, {
       path: cPath,
       title: concept.name,

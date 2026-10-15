@@ -441,9 +441,13 @@ export function mocPath(domain: string): string {
 // SPEC-17 · 概念页（术语表节点）：构建与追加式合并
 // ---------------------------------------------------------------------------
 
-/** 概念页落盘路径：概念/{领域}/{preferred}.md（文件名 = 规范名） */
-export function conceptNotePath(preferred: string, termDir: string): string {
-  return joinVaultPath(termDir, `${sanitizeFileName(preferred)}.md`);
+/**
+ * 概念页落盘路径：概念/{preferred}.md（**全局唯一，不分领域**）。
+ * 概念是知识网络的节点——节点跨领域复用（domains 记录出现的领域），
+ * 领域目录只用于 raw/笔记（内容归属）。同名不同语境 = 两个概念，靠名字带语境区分。
+ */
+export function conceptNotePath(preferred: string, rootDir: string): string {
+  return joinVaultPath(rootDir, NOTE_DIR.term, `${sanitizeFileName(preferred)}.md`);
 }
 
 /** 概念页引用记录块（"以什么身份连"：带原句语境 + 回放锚点 + 来源标注） */
@@ -484,7 +488,8 @@ export function buildConceptPageMarkdown(args: {
     `preferred: ${yamlValue(args.preferred)}`,
     `aliases: [${aliases.map((a) => yamlValue(a)).join(', ')}]`,
     ...(args.broader ? [`broader: ${yamlValue(args.broader)}`] : []),
-    `domain: ${yamlValue(args.domain)}`,
+    // domains 多值：概念全局唯一，出现在哪些领域在此累积（跨领域复用追加）
+    `domains: [${yamlValue(args.domain)}]`,
     'type: concept',
     `tags: [ai, 概念, ${yamlValue(args.domain)}]`,
     `date: ${date}`,
@@ -511,6 +516,8 @@ export function buildConceptPageMarkdown(args: {
 export function mergeConceptPageMarkdown(args: {
   existing: string;
   newAliases: string[];
+  /** 本视频所属领域（domains 多值并集：概念跨领域复用时追加） */
+  domain: string;
   reference: string;
 }): string {
   let merged = args.existing;
@@ -525,6 +532,14 @@ export function mergeConceptPageMarkdown(args: {
     merged = merged.replace(
       /^aliases: \[.*\]$/m,
       `aliases: [${current ? `${current}, ` : ''}${add.map((a) => yamlValue(a)).join(', ')}]`,
+    );
+  }
+  // domains 并集（跨领域复用追加）
+  const domainMatch = merged.match(/^domains: \[(.*)\]$/m);
+  if (domainMatch && args.domain && !domainMatch[1].includes(yamlValue(args.domain))) {
+    merged = merged.replace(
+      /^domains: \[.*\]$/m,
+      `domains: [${domainMatch[1].trim()}, ${yamlValue(args.domain)}]`,
     );
   }
   // 引用记录文末追加
