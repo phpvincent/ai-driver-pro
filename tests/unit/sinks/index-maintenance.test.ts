@@ -74,21 +74,12 @@ describe('writeIndex（双索引同步）', () => {
     ],
   };
 
-  it('同时写 JSON 与 _索引.md', async () => {
+  it('只写机器索引 JSON（_索引.md 已被领域 MOC 取代，SPEC-17 审计收敛）', async () => {
     const { fn, writes } = recordingFetch();
     await writeIndex(cfg, fn, file);
-    expect(writes).toHaveLength(2);
+    expect(writes).toHaveLength(1);
     expect(writes[0].url).toContain(encodeURIComponent('_meta'));
     expect(JSON.parse(writes[0].body)).toEqual(file);
-    expect(decodeURIComponent(writes[1].url)).toContain('_索引.md');
-    expect(writes[1].body).toContain('[[Agent]]');
-  });
-
-  it('MOC 含统计与摘要预览', async () => {
-    const { fn, writes } = recordingFetch();
-    await writeIndex(cfg, fn, file);
-    expect(writes[1].body).toContain('共 1 条笔记');
-    expect(writes[1].body).toContain('能自主规划的系统');
   });
 });
 

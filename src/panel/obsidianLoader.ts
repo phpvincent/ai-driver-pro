@@ -114,7 +114,7 @@ export async function writeIndex(
 ): Promise<void> {
   const json = JSON.stringify({ version: 1, entries: file.entries }, null, 2);
   await putNote(cfg, fetchFn, indexPath(cfg.rootDir), json);
-  await putNote(cfg, fetchFn, indexMarkdownPath(cfg.rootDir), buildIndexMarkdown(file));
+  // _索引.md 已被 索引/MOC-{领域}.md 取代（SPEC-17 审计：全局索引与领域 MOC 功能重叠，不再双写）
 }
 
 /**
@@ -312,7 +312,8 @@ export async function saveVideoNoteToObsidian(args: {
   }
 
   // ---- SPEC-17：AGENTS.md 宪法（权威维护：无则创建、有则覆盖）+ 领域 MOC ----
-  await putNote(cfg, fetchFn, AGENTS_MD_PATH, AGENTS_MD).catch(() => undefined);
+  // AGENTS.md 与知识库同根（rootDir 下）——与笔记/概念/raw 一棵子树，不散落 vault 根
+  await putNote(cfg, fetchFn, joinVaultPath(cfg.rootDir, AGENTS_MD_PATH), AGENTS_MD).catch(() => undefined);
 
   // ---- 索引（机器检索入口）：视频笔记 entry 带 domain/entities；概念页 entry ----
   const file = await readIndex(cfg, fetchFn);
@@ -351,7 +352,7 @@ export async function saveVideoNoteToObsidian(args: {
   await putNote(
     cfg,
     fetchFn,
-    mocPath(domain),
+    joinVaultPath(cfg.rootDir, mocPath(domain)),
     buildMocMarkdown({ domain, entries: fileNext.entries }),
   ).catch(() => undefined);
   return { path: videoNote };
