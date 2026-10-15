@@ -344,3 +344,93 @@ export function lintKnowledgeIndex(index: KnowledgeIndexFile | null): KnowledgeL
   }
   return issues;
 }
+
+
+// ---------------------------------------------------------------------------
+// SPEC-17 · 体检修复（v2）：断链移除 / 领域补全 / 孤儿概念页清单
+// ---------------------------------------------------------------------------
+
+export interface LintFixResult {
+  /** 修复后的 entries（断链已移除 + 领域已补全；孤儿条目仍保留——删文件由调用方确认后执行） */
+  entries: KnowledgeIndexEntry[];
+  /** 修复计数（报告用） */
+  fixedDomains: number;
+  fixedLinks: number;
+  /** 孤儿概念页（未被任何 entities 引用）：路径清单——文件删除由 loader 检查手写后确认执行 */
+  orphanPaths: string[];
+}
+
+/** 从视频笔记路径解析领域：…/笔记/{领域}/{课程}/x.md → {领域} */
+function domainFromNotePath(p: string): string | null {
+  const idx = p.indexOf('笔记/');
+  if (idx < 0) return null;
+  const rest = p.slice(idx + '笔记/'.length);
+  const seg = rest.split('/')[0];
+  return seg && seg.length > 0 ? seg : null;
+}
+
+/**
+ * 体检修复（纯函数，SPEC-17 v2）：
+ * - missing-domain：video-note 从路径解析；concept 用传入的 frontmatter 映射（loader 读文件提取）
+ * - broken-entity-link：从 entities 移除指向不存在概念页的引用（index 自洽；重新存入可重建）
+ * - orphan-concept：收集路径清单返回（不在此删除——是否含手写内容需 loader 检查文件后决定）
+ */
+export function fixLintIssues(
+  entries: ReadonlyArray<KnowledgeIndexEntry>,
+  opts: {
+    /** 概念页 frontmatter domains 首值映射（title → domain；loader 读文件提取，用于 concept 条目补全） */
+    conceptDomains?: ReadonlyMap<string, string>;
+  } = {},
+): LintFixResult {
+  const conceptTitles = new Set(entries.filter((e) => e.category === 'concept').map((e) => norm(e.title)));
+  const referenced = new Set<string>();
+  let fixedDomains = 0;
+  let fixedLinks = 0;
+  const out: KnowledgeIndexEntry[] = [];
+  const orphanPaths: string[] = [];
+  for (const e of entries) {
+    let next = e;
+    // 领域补全
+    if (!e.domain && e.category === 'video-note') {
+      const fromPath = domainFromNotePath(e.path);
+      if (fromPath) {
+        next = { ...next, domain: fromPath };
+        fixedDomains += 1;
+      }
+    }
+    if (!e.domain && (e.category === 'concept' || e.category === 'term')) {
+      const fromFrontmatter = opts.conceptDomains?.get(e.title);
+      if (fromFrontmatter) {
+        next = { ...next, domain: fromFrontmatter };
+        fixedDomains += 1;
+      }
+    }
+    // 断链移除
+    const ents = e.entities ?? [];
+    if (ents.length > 0) {
+      const kept = ents.filter((x) => conceptTitles.has(norm(x)));
+      if (kept.length !== ents.length) {
+        fixedLinks += ents.length - kept.length;
+        next = { ...next, ...(kept.length > 0 ? { entities: kept } : { entities: undefined }) };
+      }
+      for (const x of kept) referenced.add(norm(x));
+    }
+    // 孤儿收集（一次预判，末尾二次确认）
+    if (e.category === 'concept' && !referenced.has(norm(e.title))) {
+      orphanPaths.push(e.path);
+    }
+    out.push(next);
+  }
+  // 孤儿二次判定：被任何条目 entities 引用的概念不算孤儿
+  const referencedAll = new Set<string>();
+  for (const e of out) for (const x of e.entities ?? []) referencedAll.add(norm(x));
+  const realOrphans = out
+    .filter((e) => e.category === 'concept' && !referencedAll.has(norm(e.title)))
+    .map((e) => e.path);
+  return {
+    entries: out,
+    fixedDomains,
+    fixedLinks,
+    orphanPaths: realOrphans,
+  };
+}
