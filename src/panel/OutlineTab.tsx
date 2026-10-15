@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OutlineResult } from '../core/pipeline/outline';
 import { rescoreOutline } from '../core/pipeline/outline';
-import type { Density, NoteAnchor, Section, VideoMeta } from '../types';
+import type { Density, NoteAnchor, Section, VideoMeta, Cue } from '../types';
 import { formatTimestamp } from './SubtitleTab';
 import { getInflightOutline } from './outlineLoader';
 import { ModelPicker } from './ModelPicker';
@@ -36,6 +36,8 @@ import { downloadTextFile, readTextFileViaInput } from '../platform/files';
 
 export interface OutlineTabProps {
   videoId: string | null;
+  /** 字幕 cue（SPEC-16 六轮：笔记讨论串助教回复的内嵌时间戳吸附校验） */
+  cues?: Cue[];
   /** 来自 App 现有 videoInfo（与 SubtitleTab 同风格） */
   meta: VideoMeta | null;
   positionMs: number;
@@ -967,6 +969,7 @@ export function OutlineTab(props: OutlineTabProps) {
           req={noteModal}
           busyId={notesState.busyId}
           state={notesState}
+          cues={props.cues ?? []}
           onSeek={onRequestSeek}
           onClose={() => setNoteModal(null)}
         />

@@ -7,10 +7,33 @@
  * - 数据经 useNotes hook 注入，组件本身无 DB / 模型依赖（renderToString 可测）。
  */
 import { useState } from 'react';
-import type { NoteAnchor, OutlineNote, Section } from '../../types';
+import type { Cue, NoteAnchor, OutlineNote, Section } from '../../types';
 import type { NotesState } from './notesLoader';
 import { formatTimestamp } from '../SubtitleTab';
+import { splitInlineTimestamps } from '../ChatTab';
 import './notes.css';
+
+/** 助教回复正文渲染：[mm:ss] 内嵌标记 → 可点 chip（吸附校验同问答 Tab，防编造时间可点） */
+export function ReplyBody({ body, cues, onSeek }: { body: string; cues: Cue[]; onSeek?: (ms: number) => void }) {
+  return (
+    <span className="vnote-reply-body">
+      {splitInlineTimestamps(body, cues).map((seg, i) =>
+        seg.ms !== null ? (
+          <button
+            key={i}
+            type="button"
+            className="chat-ts chat-ts-inline"
+            onClick={() => onSeek?.(seg.ms!)}
+          >
+            [{formatTimestamp(seg.ms)}]
+          </button>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        ),
+      )}
+    </span>
+  );
+}
 
 /** 弹窗请求（OutlineTab 持有状态，三种锚点入口 / 卡片展开共用） */
 export interface NoteEditorRequest {
@@ -97,12 +120,15 @@ export function NoteModal({
   req,
   busyId,
   state,
+  cues,
   onSeek,
   onClose,
 }: {
   req: NoteEditorRequest;
   busyId: string | null;
   state: NotesState;
+  /** 字幕 cue（吸附校验用；缺省 = 时间标记按普通文本渲染） */
+  cues?: Cue[];
   onSeek?: (ms: number) => void;
   onClose: () => void;
 }) {
@@ -226,7 +252,7 @@ export function NoteModal({
                 {live.replies.map((r) => (
                   <li key={r.id} className={`vnote-reply${r.author === 'assistant' ? ' is-assistant' : ''}`}>
                     <span className="vnote-reply-author">{authorBadge(r.author)}：</span>
-                    <span className="vnote-reply-body">{r.body}</span>
+                    <ReplyBody body={r.body} cues={cues ?? []} onSeek={onSeek} />
                   </li>
                 ))}
               </ul>
