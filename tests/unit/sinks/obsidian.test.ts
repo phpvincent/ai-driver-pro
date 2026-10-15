@@ -108,7 +108,7 @@ describe('putNote（写入）', () => {
 
   it('连接拒绝 → throw 且提示确认 Obsidian 已启动并开启 HTTP 模式', async () => {
     const fn: ObsidianFetch = () => Promise.reject(new Error('fetch failed'));
-    await expect(putNote(cfg(), fn, 'a.md', 'x')).rejects.toThrow(/无法连接 Obsidian/);
+    await expect(putNote(cfg(), fn, 'a.md', 'x')).rejects.toThrow(/无法连接知识库/);
     await expect(putNote(cfg(), fn, 'a.md', 'x')).rejects.toThrow(/HTTP 模式/);
   });
 
@@ -166,6 +166,6 @@ describe('testConnection（连通性自检）', () => {
 
   it('证书失败（网络层异常）→ 归入无法连接分支', async () => {
     const fn: ObsidianFetch = () => Promise.reject(new Error('certificate has expired'));
-    await expect(testConnection(cfg(), fn)).rejects.toThrow(/无法连接 Obsidian/);
+    await expect(testConnection(cfg(), fn)).rejects.toThrow(/无法连接知识库/);
   });
 });

@@ -104,21 +104,57 @@ export async function writeIndex(
   await putNote(cfg, fetchFn, indexMarkdownPath(cfg.rootDir), buildIndexMarkdown(file));
 }
 
-/** 读 Obsidian 配置；未配置（三段全空）返回 null */
+/**
+ * 读当前生效的知识库配置（SPEC-16：按通道分离）——
+ * knowledgeSink='obsidian' 读 obsidian 段；'companion'（默认）读 companion 段。
+ * 未设置时按存量迁移：obsidian 段已配 Key → obsidian（老用户不破坏），否则 companion。
+ * 未配置（三段全空 / enabled=false）返回 null（存入走本地 .md 下载降级）。
+ */
 export async function getObsidianConfig(): Promise<ObsidianConfig | null> {
   const settings = await readSettings();
-  const stored = settings.obsidian as Partial<ObsidianConfig> | undefined;
+  const obsidianStored = (settings.obsidian ?? {}) as Partial<ObsidianConfig>;
+  const companionStored = ((settings as { companion?: Partial<ObsidianConfig> }).companion ??
+    {}) as Partial<ObsidianConfig>;
+  // readSettings 返回 Record<string, unknown>：通道值需显式收窄
+  const rawSink = settings.knowledgeSink;
+  const sink: 'companion' | 'obsidian' =
+    rawSink === 'obsidian' || rawSink === 'companion'
+      ? rawSink
+      : typeof obsidianStored.apiKey === 'string' && obsidianStored.apiKey.length > 0
+        ? 'obsidian'
+        : 'companion';
+  const stored = sink === 'obsidian' ? obsidianStored : companionStored;
   if (!stored || typeof stored !== 'object') return null;
   const cfg: ObsidianConfig = {
     baseUrl: typeof stored.baseUrl === 'string' ? stored.baseUrl : '',
     apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : '',
     rootDir: typeof stored.rootDir === 'string' ? stored.rootDir : '',
     enabled: stored.enabled !== false,
+    kind: sink,
   };
   // enabled=false（设置页"暂时停用"）→ 视同未配置：存入走本地 .md 下载降级
   if (cfg.enabled === false) return null;
   if (!cfg.baseUrl && !cfg.apiKey && !cfg.rootDir) return null;
   return cfg;
+}
+
+/** 保存知识库配置：按通道写入各自分区（companion / obsidian 互不覆盖） */
+export async function saveKnowledgeConfig(
+  sink: 'companion' | 'obsidian',
+  cfg: ObsidianConfig,
+): Promise<void> {
+  const settings = await readSettings();
+  if (sink === 'obsidian') {
+    await sendRuntimeMessage({
+      type: MSG.SET_SETTINGS,
+      payload: { ...settings, obsidian: cfg, knowledgeSink: sink },
+    });
+    return;
+  }
+  await sendRuntimeMessage({
+    type: MSG.SET_SETTINGS,
+    payload: { ...settings, companion: cfg, knowledgeSink: sink },
+  });
 }
 
 /** 保存 Obsidian 配置：与 settings 现有分区合并写（不动 model 段） */

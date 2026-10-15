@@ -25,7 +25,7 @@ import { chatCompletion } from '../../core/harness/modelClient';
 import { BOCHA, COMPANION, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
-import { testObsidianConnection } from '../obsidianLoader';
+import { saveKnowledgeConfig, testObsidianConnection } from '../obsidianLoader';
 import { searchBocha } from '../../core/knowledge/webSearch';
 import { downloadBackup, importBackup } from '../dataBackup';
 import { readTextFileViaInput } from '../../platform/files';
@@ -76,9 +76,17 @@ interface ObsidianFormState {
   enabled: boolean;
 }
 
-/** 未配置时的回填默认：只带接口地址默认值（OBSIDIAN.baseUrl，红线 9 的唯一来源） */
+/** 未配置时的回填默认：只带接口地址默认值（红线 9 的唯一来源） */
 const INITIAL_OBSIDIAN_FORM: ObsidianFormState = {
   baseUrl: OBSIDIAN.baseUrl,
+  apiKey: '',
+  rootDir: '',
+  enabled: true,
+};
+
+/** companion 通道的表单默认（SPEC-16 二轮：与 Obsidian 各存各的配置） */
+const INITIAL_COMPANION_FORM: ObsidianFormState = {
+  baseUrl: COMPANION.baseUrl,
   apiKey: '',
   rootDir: '',
   enabled: true,
@@ -167,8 +175,10 @@ export function SettingsPage({
   const [visionModules, setVisionModules] = useState<Record<VisionModule, boolean>>(INITIAL_VISION_MODULES);
   const [visionSwitchFeedback, setVisionSwitchFeedback] = useState<Feedback>(null);
   const [visionSwitchSaving, setVisionSwitchSaving] = useState(false);
-  /** Obsidian 区表单与提示（与模型区状态独立） */
+  /** Obsidian 直连表单（与模型区状态独立） */
   const [obsidian, setObsidian] = useState<ObsidianFormState>(INITIAL_OBSIDIAN_FORM);
+  /** companion 本地服务表单（SPEC-16 二轮：两通道各存各的配置，互不干扰） */
+  const [companion, setCompanion] = useState<ObsidianFormState>(INITIAL_COMPANION_FORM);
   /** 个人知识库二级页（SPEC-16 一轮）：entry 入口卡片 / detail 配置详情 */
   const [knowledgeView, setKnowledgeView] = useState<'entry' | 'detail'>('entry');
   /** 知识库通道（SPEC-16 二轮）：companion 本地服务（默认）/ Obsidian 直连，互斥 */
@@ -267,12 +277,24 @@ export function SettingsPage({
         const merged = { ...presetConfigOf('deepseek'), ...(stored.model ?? {}) } as Partial<ModelConfig>;
         const obs = (stored.obsidian ?? {}) as Partial<ObsidianConfig>;
         setObsidian({
-          baseUrl: obs.baseUrl || COMPANION.baseUrl,
+          baseUrl: obs.baseUrl || OBSIDIAN.baseUrl,
           apiKey: obs.apiKey ?? '',
           rootDir: obs.rootDir ?? '',
           enabled: obs.enabled !== false,
         });
-        setKnowledgeSink(obs.kind === 'obsidian' ? 'obsidian' : 'companion');
+        const cmp = ((stored as { companion?: Partial<ObsidianConfig> }).companion ??
+          {}) as Partial<ObsidianConfig>;
+        setCompanion({
+          baseUrl: cmp.baseUrl || COMPANION.baseUrl,
+          apiKey: cmp.apiKey ?? '',
+          rootDir: cmp.rootDir ?? '',
+          enabled: cmp.enabled !== false,
+        });
+        // 通道选择：显式保存的优先；未保存过按存量迁移（Obsidian 已配 Key 的老用户不破坏）
+        setKnowledgeSink(
+          stored.knowledgeSink ??
+            (typeof obs.apiKey === 'string' && obs.apiKey.length > 0 ? 'obsidian' : 'companion'),
+        );
         setKnowledgeSearch(stored.knowledgeSearch !== false);
         setBochaKey(typeof stored.bochaApiKey === 'string' ? stored.bochaApiKey : '');
         setForm(
@@ -488,15 +510,23 @@ export function SettingsPage({
 
   /** Obsidian 配置校验：三段必填 */
   const validateObsidian = (form: ObsidianFormState): string | null => {
-    if (!form.baseUrl.trim()) return 'Obsidian 接口地址不能为空';
-    if (!form.apiKey.trim()) return 'Obsidian API Key 不能为空';
+    if (!form.baseUrl.trim()) return '接口地址不能为空';
+    if (!form.apiKey.trim()) return 'API Key 不能为空';
     if (!form.rootDir.trim()) return '笔记根目录不能为空';
     return null;
   };
 
-  /** 保存 Obsidian 配置（只合并 obsidian 段，不动 model） */
+  /** 当前通道的表单（companion / obsidian 各存各的，编辑与保存都作用于选中通道） */
+  const activeForm = knowledgeSink === 'companion' ? companion : obsidian;
+  const updateActiveForm = (field: keyof ObsidianFormState, value: string | boolean): void => {
+    const setter = knowledgeSink === 'companion' ? setCompanion : setObsidian;
+    setter((prev) => ({ ...prev, [field]: value }));
+    setObsidianFeedback(null);
+  };
+
+  /** 保存当前通道的知识库配置（companion 写 companion 段 / obsidian 写 obsidian 段，互不覆盖） */
   const handleSaveObsidian = () => {
-    const error = validateObsidian(obsidian);
+    const error = validateObsidian(activeForm);
     if (error) {
       setObsidianFeedback({ kind: 'error', text: error });
       return;
@@ -504,18 +534,20 @@ export function SettingsPage({
     setObsidianSaving(true);
     setObsidianFeedback(null);
     const cfg: ObsidianConfig = {
-      baseUrl: obsidian.baseUrl.trim(),
-      apiKey: obsidian.apiKey.trim(),
-      rootDir: obsidian.rootDir.trim(),
-      enabled: obsidian.enabled,
+      baseUrl: activeForm.baseUrl.trim(),
+      apiKey: activeForm.apiKey.trim(),
+      rootDir: activeForm.rootDir.trim(),
+      enabled: activeForm.enabled,
       kind: knowledgeSink,
     };
-    // 与 Obsidian 配置一起保存 knowledgeSearch 开关（整份 settings 合并写，不动其他分区）
-    savePatch({ obsidian: cfg, knowledgeSearch })
-      .then((ok) => {
-        setObsidianFeedback(
-          ok ? { kind: 'ok', text: '已保存' } : { kind: 'error', text: '保存失败：background 未确认' },
-        );
+    // 与知识库配置一起保存 knowledgeSearch 开关（整份 settings 合并写，不动其他分区）
+    saveKnowledgeConfig(knowledgeSink, cfg)
+      .then(() => savePatch({ knowledgeSearch }))
+      .then(() => {
+        setObsidianFeedback({ kind: 'ok', text: '已保存' });
+      })
+      .catch(() => {
+        setObsidianFeedback({ kind: 'error', text: '保存失败：background 未确认' });
       })
       .finally(() => setObsidianSaving(false));
   };
@@ -525,7 +557,7 @@ export function SettingsPage({
    * （摘要一律不含 apiKey：sink 层只在 header 携带，错误文案只带状态码）。
    */
   const handleTestObsidian = () => {
-    const error = validateObsidian(obsidian);
+    const error = validateObsidian(activeForm);
     if (error) {
       setObsidianFeedback({ kind: 'error', text: error });
       return;
@@ -533,10 +565,10 @@ export function SettingsPage({
     setObsidianTesting(true);
     setObsidianFeedback(null);
     const cfg: ObsidianConfig = {
-      baseUrl: obsidian.baseUrl.trim(),
-      apiKey: obsidian.apiKey.trim(),
-      rootDir: obsidian.rootDir.trim(),
-      enabled: obsidian.enabled,
+      baseUrl: activeForm.baseUrl.trim(),
+      apiKey: activeForm.apiKey.trim(),
+      rootDir: activeForm.rootDir.trim(),
+      enabled: activeForm.enabled,
       kind: knowledgeSink,
     };
     testObsidianConnection(cfg)
@@ -673,11 +705,8 @@ export function SettingsPage({
         >
           <input
             type="checkbox"
-            checked={obsidian.enabled}
-            onChange={(e) => {
-              setObsidian({ ...obsidian, enabled: e.target.checked });
-              setObsidianFeedback(null);
-            }}
+            checked={activeForm.enabled}
+            onChange={(e) => updateActiveForm('enabled', e.target.checked)}
           />
           <span>启用知识库同步（不勾 = 暂时停用：存入将直接下载 .md 到本地，凭据保留不擦除）</span>
         </label>
@@ -746,8 +775,8 @@ export function SettingsPage({
           <input
             type="text"
             placeholder={knowledgeSink === 'companion' ? COMPANION.baseUrl : OBSIDIAN.baseUrl}
-            value={obsidian.baseUrl}
-            onChange={updateObsidian('baseUrl')}
+            value={activeForm.baseUrl}
+            onChange={(e) => updateActiveForm('baseUrl', e.target.value)}
           />
         </label>
         <label className="field">
@@ -755,8 +784,8 @@ export function SettingsPage({
           <input
             type="password"
             placeholder={knowledgeSink === 'companion' ? '粘贴程序窗口打印的 API Key' : '粘贴 Local REST API 的 API Key'}
-            value={obsidian.apiKey}
-            onChange={updateObsidian('apiKey')}
+            value={activeForm.apiKey}
+            onChange={(e) => updateActiveForm('apiKey', e.target.value)}
           />
         </label>
         <label className="field">
@@ -764,8 +793,8 @@ export function SettingsPage({
           <input
             type="text"
             placeholder="如：视频学习副驾"
-            value={obsidian.rootDir}
-            onChange={updateObsidian('rootDir')}
+            value={activeForm.rootDir}
+            onChange={(e) => updateActiveForm('rootDir', e.target.value)}
           />
         </label>
         <label
@@ -1089,7 +1118,7 @@ export function SettingsPage({
         <h4>个人知识库</h4>
         <button type="button" className="knowledge-entry" onClick={() => setKnowledgeView('detail')}>
           <span className="knowledge-entry-title">
-            {obsidian.enabled && obsidian.apiKey.trim()
+            {activeForm.enabled && activeForm.apiKey.trim()
               ? `已启用（${knowledgeSink === 'obsidian' ? 'Obsidian 直连' : '本地知识库服务'}）`
               : '未配置（存入将直接下载 .md）'}
           </span>
