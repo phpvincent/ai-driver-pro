@@ -85,7 +85,7 @@ describe('AGENTS.md 蒸馏宪法（知识库员工手册）', () => {
 describe('buildMocMarkdown / mocPath（领域 MOC）', () => {
   const entries: KnowledgeIndexEntry[] = [
     {
-      path: '视频笔记/逻辑学/BV1xx/图形推理.md',
+      path: '笔记/逻辑学/BV1xx/图形推理.md',
       title: '图形推理',
       category: 'video-note',
       tags: [],
@@ -95,7 +95,7 @@ describe('buildMocMarkdown / mocPath（领域 MOC）', () => {
       domain: '逻辑学',
     },
     {
-      path: '视频笔记/编程/BV2yy/路由.md',
+      path: '笔记/编程/BV2yy/路由.md',
       title: '路由配置',
       category: 'video-note',
       tags: [],
@@ -105,7 +105,7 @@ describe('buildMocMarkdown / mocPath（领域 MOC）', () => {
       domain: '编程',
     },
     {
-      path: '术语/逻辑学/排除法.md',
+      path: '概念/逻辑学/排除法.md',
       title: '排除法',
       category: 'term',
       tags: [],
@@ -128,7 +128,7 @@ describe('buildMocMarkdown / mocPath（领域 MOC）', () => {
   it('缺省 domain 的旧条目归入 通用 MOC', () => {
     const legacy: KnowledgeIndexEntry[] = [
       {
-        path: '视频笔记/BV3zz/旧笔记.md',
+        path: '笔记/BV3zz/旧笔记.md',
         title: '旧笔记',
         category: 'video-note',
         tags: [],
@@ -216,7 +216,7 @@ describe('概念页（术语表节点）', () => {
   });
 
   it('conceptNotePath：文件名 = 规范名', () => {
-    expect(conceptNotePath('排除法', '术语/逻辑学')).toBe('术语/逻辑学/排除法.md');
+    expect(conceptNotePath('排除法', '概念/逻辑学')).toBe('概念/逻辑学/排除法.md');
   });
 });
 
@@ -261,3 +261,96 @@ describe('parseDistillResult（蒸馏 schema，红线 4）', () => {
     expect(() => parseDistillResult(JSON.stringify({ domain: '逻辑学', concepts: [] , extra: true }))).not.toThrow();
   });
 });
+
+// SPEC-17 批 3：检索升级（user-note 加权 / related 链）+ Lint 体检
+import { lintKnowledgeIndex, searchIndex } from '../../../src/core/knowledge/retriever';
+import type { KnowledgeIndexFile } from '../../../src/types';
+
+describe('searchIndex 升级（SPEC-17）', () => {
+  const base = {
+    tags: ['ai'],
+    summaryPreview: '预览',
+    updatedAt: '2026-10-16T00:00:00Z',
+  };
+  const index: KnowledgeIndexFile = {
+    version: 1,
+    entries: [
+      {
+        ...base,
+        path: '笔记/逻辑学/BV1/图形推理.md',
+        title: '图形推理',
+        category: 'video-note',
+        terms: ['图形推理'],
+        domain: '逻辑学',
+        entities: ['排除法'],
+      },
+      {
+        ...base,
+        path: '概念/逻辑学/排除法.md',
+        title: '排除法',
+        category: 'concept',
+        terms: ['排除法'],
+        domain: '逻辑学',
+      },
+      {
+        ...base,
+        path: '笔记/逻辑学/BV2/我的心得.md',
+        title: '我的心得',
+        category: 'video-note',
+        terms: ['图形推理'],
+        domain: '逻辑学',
+        sourceType: 'user-note',
+      },
+    ],
+  };
+
+  it('用户批注（sourceType=user-note）加权排在 AI 蒸馏前面', () => {
+    const hits = searchIndex({ index, queryTerms: ['图形推理'], topK: 3 });
+    expect(hits[0].entry.title).toBe('我的心得'); // 同检索词下人写的在前
+    expect(hits.some((h) => h.entry.title === '图形推理')).toBe(true);
+  });
+
+  it('related 链内联：命中视频笔记时概念页顺链补进结果', () => {
+    // topK=2 命中两条视频笔记；图形推理的 entities 指向排除法（未直接命中）——顺链补进
+    const hits = searchIndex({ index, queryTerms: ['图形推理'], topK: 2 });
+    expect(hits[0].entry.title).toBe('我的心得'); // user-note 加权第一
+    expect(hits[1].entry.title).toBe('图形推理');
+    const related = hits.find((h) => h.entry.category === 'concept');
+    expect(related?.entry.title).toBe('排除法'); // related 链内联，不占 topK 主位
+  });
+});
+
+describe('lintKnowledgeIndex（SPEC-17 体检）', () => {
+  const base = {
+    tags: ['ai'],
+    summaryPreview: '预览',
+    updatedAt: '2026-10-16T00:00:00Z',
+    domain: '逻辑学',
+  };
+
+  it('健康索引返回空；孤儿概念页 / 断链 / 领域缺失各归其类', () => {
+    const healthy: KnowledgeIndexFile = {
+      version: 1,
+      entries: [
+        { ...base, path: '笔记/d/BV/a.md', title: 'a', category: 'video-note', terms: ['a'], entities: ['排除法'] },
+        { ...base, path: '概念/d/排除法.md', title: '排除法', category: 'concept', terms: ['排除法'] },
+      ],
+    };
+    expect(lintKnowledgeIndex(healthy)).toEqual([]);
+    expect(lintKnowledgeIndex(null)).toEqual([]);
+
+    const broken: KnowledgeIndexFile = {
+      version: 1,
+      entries: [
+        { ...base, path: '笔记/d/BV/a.md', title: 'a', category: 'video-note', terms: ['a'], entities: ['不存在的概念'] },
+        { ...base, path: '概念/d/孤儿.md', title: '孤儿', category: 'concept', terms: ['孤儿'] },
+        { ...base, domain: undefined, path: '旧笔记.md', title: '旧', category: 'video-note', terms: ['旧'] },
+      ],
+    };
+    const issues = lintKnowledgeIndex(broken);
+    expect(issues.filter((i) => i.kind === 'orphan-concept').length).toBe(1);
+    expect(issues.filter((i) => i.kind === 'broken-entity-link').length).toBe(1);
+    expect(issues.filter((i) => i.kind === 'missing-domain').length).toBe(1);
+  });
+});
+

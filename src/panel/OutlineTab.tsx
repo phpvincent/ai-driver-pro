@@ -894,7 +894,7 @@ export function OutlineTab(props: OutlineTabProps) {
             onClick={handleSaveVideoNote}
             disabled={saving}
           >
-            {saving ? '存入中…' : '存入知识库'}
+            {saving ? '蒸馏入库中…' : '存入知识库'}
           </button>
         )}
         <button

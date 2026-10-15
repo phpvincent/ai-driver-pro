@@ -143,18 +143,18 @@ describe('sanitizeFileName', () => {
 });
 
 describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
-  it('默认领域 通用：笔记 视频笔记/{领域}/{课程}/{标题}.md，术语 术语/{领域}/，raw 同层', () => {
+  it('默认领域 通用：笔记 笔记/{领域}/{课程}/{标题}.md，术语 概念/{领域}/，raw 同层', () => {
     const paths = vaultPathsFor(meta(), '视频学习副驾');
-    expect(paths.videoNote).toBe('视频学习副驾/视频笔记/通用/BV1YG7G6eEPR/P2 Agent基本概念.md');
-    expect(paths.termDir).toBe('视频学习副驾/术语/通用');
+    expect(paths.videoNote).toBe('视频学习副驾/笔记/通用/BV1YG7G6eEPR/P2 Agent基本概念.md');
+    expect(paths.termDir).toBe('视频学习副驾/概念/通用');
     expect(paths.rawNote).toBe('视频学习副驾/raw/通用/BV1YG7G6eEPR/BV1YG7G6eEPR.md');
     expect(paths.domainDir).toBe('通用');
   });
 
   it('指定领域：目录随领域生长（逻辑学/编程…）', () => {
     const paths = vaultPathsFor(meta(), 'root', '逻辑学');
-    expect(paths.videoNote).toBe('root/视频笔记/逻辑学/BV1YG7G6eEPR/P2 Agent基本概念.md');
-    expect(paths.termDir).toBe('root/术语/逻辑学');
+    expect(paths.videoNote).toBe('root/笔记/逻辑学/BV1YG7G6eEPR/P2 Agent基本概念.md');
+    expect(paths.termDir).toBe('root/概念/逻辑学');
     expect(paths.rawNote).toBe('root/raw/逻辑学/BV1YG7G6eEPR/BV1YG7G6eEPR.md');
   });
 
@@ -164,17 +164,17 @@ describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
   });
 
   it('rootDir 为空时不带前导斜杠', () => {
-    expect(vaultPathsFor(meta(), '').videoNote.startsWith('视频笔记/')).toBe(true);
+    expect(vaultPathsFor(meta(), '').videoNote.startsWith('笔记/')).toBe(true);
   });
 
   it('标题含非法字符被清洗', () => {
     const paths = vaultPathsFor(meta({ title: 'A/B:概念' }), 'root');
-    expect(paths.videoNote).toBe('root/视频笔记/通用/BV1YG7G6eEPR/A_B_概念.md');
+    expect(paths.videoNote).toBe('root/笔记/通用/BV1YG7G6eEPR/A_B_概念.md');
   });
 
   it('bvid 缺失时回落 videoId 作课程目录', () => {
     const paths = vaultPathsFor(meta({ bvid: '' }), 'root');
-    expect(paths.videoNote).toBe('root/视频笔记/通用/BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
+    expect(paths.videoNote).toBe('root/笔记/通用/BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
     expect(paths.rawNote).toBe('root/raw/通用/BV1YG7G6eEPR_p2/BV1YG7G6eEPR_p2.md');
   });
 });
@@ -327,7 +327,7 @@ describe('buildTermCardMarkdown', () => {
 
 describe('buildIndexMarkdown（人类可读 MOC）', () => {
   const entry = (over: Partial<KnowledgeIndexEntry> = {}): KnowledgeIndexEntry => ({
-    path: '视频学习副驾/视频笔记/BV1/P2.md',
+    path: '视频学习副驾/笔记/BV1/P2.md',
     title: 'P2 Agent基本概念',
     category: 'video-note',
     tags: ['ai', '视频笔记'],
@@ -347,10 +347,10 @@ describe('buildIndexMarkdown（人类可读 MOC）', () => {
   it('按 category 分组并用 [[双链]] 列出摘要预览', () => {
     const md = buildIndexMarkdown({
       version: 1,
-      entries: [entry(), entry({ path: '视频学习副驾/术语/Agent.md', title: 'Agent', category: 'term', summaryPreview: '能自主规划的系统' })],
+      entries: [entry(), entry({ path: '视频学习副驾/概念/Agent.md', title: 'Agent', category: 'term', summaryPreview: '能自主规划的系统' })],
     });
-    expect(md).toContain('## 视频笔记');
-    expect(md).toContain('## 术语');
+    expect(md).toContain('## 笔记');
+    expect(md).toContain('## 概念');
     expect(md).toContain('- [[P2]] — 本课讲 Agent 定义');
     expect(md).toContain('- [[Agent]] — 能自主规划的系统');
     expect(md).toContain('共 2 条笔记（视频笔记 1 · 术语 1）');
@@ -367,7 +367,7 @@ describe('buildIndexMarkdown（人类可读 MOC）', () => {
 
 describe('upsertIndexEntry（按 path 去重覆盖）', () => {
   const e1: KnowledgeIndexEntry = {
-    path: 'root/术语/Agent.md',
+    path: 'root/概念/Agent.md',
     title: 'Agent',
     category: 'term',
     tags: ['ai'],
@@ -375,7 +375,7 @@ describe('upsertIndexEntry（按 path 去重覆盖）', () => {
     summaryPreview: '旧预览',
     updatedAt: '2026-09-01T00:00:00.000Z',
   };
-  const e2: KnowledgeIndexEntry = { ...e1, path: 'root/术语/Workflow.md', title: '工作流', summaryPreview: '工作流预览' };
+  const e2: KnowledgeIndexEntry = { ...e1, path: 'root/概念/Workflow.md', title: '工作流', summaryPreview: '工作流预览' };
 
   it('新 path 追加到末尾', () => {
     const out = upsertIndexEntry({ version: 1, entries: [e1] }, e2);
@@ -455,7 +455,7 @@ describe('其他确定性小工具', () => {
   });
 
   it('joinVaultPath 忽略空段与多余斜杠', () => {
-    expect(joinVaultPath('/root/', '', '术语/', 'A.md')).toBe('root/术语/A.md');
+    expect(joinVaultPath('/root/', '', '概念/', 'A.md')).toBe('root/概念/A.md');
     expect(joinVaultPath('', '', '')).toBe('');
   });
 });

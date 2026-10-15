@@ -25,7 +25,8 @@ import { chatCompletion } from '../../core/harness/modelClient';
 import { BOCHA, COMPANION, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
-import { saveKnowledgeConfig, testObsidianConnection } from '../obsidianLoader';
+import { checkKnowledgeHealth, saveKnowledgeConfig, testObsidianConnection } from '../obsidianLoader';
+import type { KnowledgeLintIssue } from '../../core/knowledge/retriever';
 import { searchBocha } from '../../core/knowledge/webSearch';
 import { downloadBackup, importBackup } from '../dataBackup';
 import { readTextFileViaInput } from '../../platform/files';
@@ -187,6 +188,9 @@ export function SettingsPage({
   const [knowledgeSink, setKnowledgeSink] = useState<'companion' | 'obsidian'>('companion');
   /** 复制数据目录路径的行内反馈 */
   const [copyPathFeedback, setCopyPathFeedback] = useState<string | null>(null);
+  /** 知识库体检（SPEC-17 Lint v1）：进行中 / 问题清单 */
+  const [lintBusy, setLintBusy] = useState(false);
+  const [lintIssues, setLintIssues] = useState<KnowledgeLintIssue[] | null>(null);
   /** 问答时检索个人知识库（默认开启，与 Obsidian 配置一起保存） */
   const [knowledgeSearch, setKnowledgeSearch] = useState<boolean>(true);
   /** 博查搜索增强 Key（SPEC-15：国内方案，可选；配置后公开资料升级为专业搜索） */
@@ -851,6 +855,38 @@ export function SettingsPage({
         </div>
         {knowledgeSink === 'companion' && copyPathFeedback && (
           <p className="settings-hint">{copyPathFeedback}</p>
+        )}
+        <div className="field-row">
+          <button
+            type="button"
+            className="btn"
+            title="检查知识库结构：孤儿概念页 / 断链 / 领域缺失（SPEC-17 Lint）"
+            disabled={lintBusy}
+            onClick={() => {
+              setLintBusy(true);
+              setLintIssues(null);
+              void checkKnowledgeHealth()
+                .then((issues) => setLintIssues(issues))
+                .catch(() => setLintIssues([]))
+                .finally(() => setLintBusy(false));
+            }}
+          >
+            {lintBusy ? '体检中…' : '知识库体检'}
+          </button>
+        </div>
+        {lintIssues && (
+          <p className="settings-hint">
+            {lintIssues.length === 0
+              ? '体检通过：结构健康，无孤儿概念页 / 断链 / 领域缺失。'
+              : `发现 ${lintIssues.length} 个问题：` +
+                lintIssues
+                  .slice(0, 6)
+                  .map(
+                    (i) =>
+                      `${i.kind === 'orphan-concept' ? '孤儿概念页' : i.kind === 'broken-entity-link' ? '断链' : '领域缺失'} ${i.detail}`,
+                  )
+                  .join('；')}
+          </p>
         )}
         {obsidianFeedback && (
           <p
