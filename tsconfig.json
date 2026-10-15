@@ -13,5 +13,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests"],
+  "exclude": ["companion", "dist", "node_modules", "tests/unit/companion"]
 }

@@ -169,6 +169,8 @@ export function SettingsPage({
   const [visionSwitchSaving, setVisionSwitchSaving] = useState(false);
   /** Obsidian 区表单与提示（与模型区状态独立） */
   const [obsidian, setObsidian] = useState<ObsidianFormState>(INITIAL_OBSIDIAN_FORM);
+  /** 个人知识库二级页（SPEC-16 一轮）：entry 入口卡片 / detail 配置详情 */
+  const [knowledgeView, setKnowledgeView] = useState<'entry' | 'detail'>('entry');
   /** 问答时检索个人知识库（默认开启，与 Obsidian 配置一起保存） */
   const [knowledgeSearch, setKnowledgeSearch] = useState<boolean>(true);
   /** 博查搜索增强 Key（SPEC-15：国内方案，可选；配置后公开资料升级为专业搜索） */
@@ -858,8 +860,28 @@ export function SettingsPage({
         )}
       </section>
 
+      {/* 个人知识库（SPEC-16 一轮）：入口卡片 → 点击进二级页（通道指引 + 配置 + 测试） */}
       <section className="settings-section">
-        <h4>知识库同步</h4>
+        <h4>个人知识库</h4>
+        <button type="button" className="knowledge-entry" onClick={() => setKnowledgeView('detail')}>
+          <span className="knowledge-entry-title">
+            {obsidian.enabled && obsidian.apiKey.trim()
+              ? `已启用（${obsidian.baseUrl.includes('27123') ? 'Obsidian 直连' : '本地知识库服务'}）`
+              : '未配置（存入将直接下载 .md）'}
+          </span>
+          <span className="knowledge-entry-sub">
+            保存视频笔记与术语卡、问答时检索个人笔记 · 点击配置 →
+          </span>
+        </button>
+      </section>
+      {knowledgeView === 'detail' && (
+      <section className="settings-section">
+        <div className="knowledge-detail-head">
+          <button type="button" className="btn" onClick={() => setKnowledgeView('entry')}>
+            ← 返回
+          </button>
+          <h4>个人知识库</h4>
+        </div>
         <label
           className="field"
           style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
@@ -876,25 +898,29 @@ export function SettingsPage({
         </label>
         <p className="settings-hint">
           两种通道任选其一（同一套协议）：默认推荐「本地知识库服务」——下载运行一个小程序即可，
-          无需安装 Obsidian；笔记是本地 md 文件，落在「根目录/视频笔记/」与「根目录/术语/」
+          无需安装 Obsidian；笔记是本地 md 文件，带层级目录与索引，落在「根目录/视频笔记/」与「根目录/术语/」
         </p>
-        <details className="settings-guide">
-          <summary>推荐：本地知识库服务（3 步，无需 Obsidian）</summary>
+        <details className="settings-guide" open>
+          <summary>推荐：本地知识库服务（4 步，无需 Obsidian）</summary>
           <ol>
             <li>
               <a href={COMPANION.downloadUrl} target="_blank" rel="noreferrer">
                 下载本地知识库服务（GitHub Releases）
               </a>{' '}
-              → 选你系统的版本（Windows / macOS）→ 双击运行，保持窗口开着
+              → 选你系统的版本（Windows 选 vsc-knowledge-win64.exe / macOS 选 vsc-knowledge-macos）
+              → 双击运行。首次运行 macOS 可能提示「无法验证开发者」：右键 → 打开 → 再点打开
             </li>
             <li>
-              窗口里会打印「API Key」→ 复制粘贴到本页「API Key」；「接口地址」保持{' '}
-              <code>{COMPANION.baseUrl}</code> 默认即可
+              程序窗口会打印「API Key」→ 复制粘贴到本页「API Key」；「接口地址」保持{' '}
+              <code>{COMPANION.baseUrl}</code> 默认即可（程序开着才能同步，关窗口 = 停止）
             </li>
             <li>
               「笔记根目录」填一个文件夹名（如 <code>副驾</code>，不存在会自动创建）→
-              点「保存」→「测试连接」。
-              笔记保存在 <code>~/vsc-knowledge/</code>，全是 md 文件；
+              点「保存」→「测试连接」显示成功即打通
+            </li>
+            <li>
+              笔记保存在 <code>~/vsc-knowledge/</code>，带层级目录（视频笔记按课程分夹）与双索引
+              （_索引.md 人类目录 + _meta/index.json 机器检索）；
               日后想用 Obsidian 的功能，直接把该目录「打开为仓库」即可
             </li>
           </ol>
@@ -1001,6 +1027,7 @@ export function SettingsPage({
           </p>
         )}
       </section>
+      )}
       <section className="settings-section">
         <h4>搜索增强（可选）</h4>
         <p className="settings-hint">

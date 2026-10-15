@@ -215,6 +215,48 @@ body {
   font-size: 11px;
 }
 
+/* 个人知识库入口卡片（SPEC-16 一轮）：主列表一层点击进二级配置页 */
+.knowledge-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  background: #f7f8fa;
+  cursor: pointer;
+  text-align: left;
+}
+
+.knowledge-entry:hover {
+  border-color: #165dff;
+  background: #f2f7ff;
+}
+
+.knowledge-entry-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d2129;
+}
+
+.knowledge-entry-sub {
+  font-size: 12px;
+  color: #86909c;
+}
+
+/* 二级页头部：返回按钮 + 标题同行 */
+.knowledge-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.knowledge-detail-head h4 {
+  margin: 0;
+}
+
 .btn {
   padding: 6px 14px;
   border: 1px solid #e5e6eb;
