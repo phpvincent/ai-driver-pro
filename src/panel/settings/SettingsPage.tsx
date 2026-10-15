@@ -892,8 +892,9 @@ export function SettingsPage({
               <code>Local REST API</code> → 安装并启用
             </li>
             <li>
-              在第三方插件列表点 Local REST API 的齿轮进入插件设置：确认「协议」是 HTTP（默认），
-              端口默认 27123 → 本页「接口地址」保持 <code>{OBSIDIAN.baseUrl}</code> 即可
+              在第三方插件列表点 Local REST API 的齿轮进入插件设置：**打开「Enable
+              Non-encrypted (HTTP) server」开关**（新版默认只开 HTTPS——自签证书扩展无法信任，
+              必须用 HTTP），端口默认 27123 → 本页「接口地址」保持 <code>{OBSIDIAN.baseUrl}</code> 即可
             </li>
             <li>
               插件设置页找到「API Key」→ 点复制 → 粘贴到本页「API Key」
