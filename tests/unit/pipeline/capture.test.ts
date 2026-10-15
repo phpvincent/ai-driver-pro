@@ -142,11 +142,25 @@ describe('sanitizeFileName', () => {
   });
 });
 
-describe('vaultPathsFor（分层目录）', () => {
-  it('视频笔记落在 视频笔记/{课程}/{标题}.md，术语目录为 术语/', () => {
+describe('vaultPathsFor（分层目录 + SPEC-17 领域层）', () => {
+  it('默认领域 通用：笔记 视频笔记/{领域}/{课程}/{标题}.md，术语 术语/{领域}/，raw 同层', () => {
     const paths = vaultPathsFor(meta(), '视频学习副驾');
-    expect(paths.videoNote).toBe('视频学习副驾/视频笔记/BV1YG7G6eEPR/P2 Agent基本概念.md');
-    expect(paths.termDir).toBe('视频学习副驾/术语');
+    expect(paths.videoNote).toBe('视频学习副驾/视频笔记/通用/BV1YG7G6eEPR/P2 Agent基本概念.md');
+    expect(paths.termDir).toBe('视频学习副驾/术语/通用');
+    expect(paths.rawNote).toBe('视频学习副驾/raw/通用/BV1YG7G6eEPR/BV1YG7G6eEPR.md');
+    expect(paths.domainDir).toBe('通用');
+  });
+
+  it('指定领域：目录随领域生长（逻辑学/编程…）', () => {
+    const paths = vaultPathsFor(meta(), 'root', '逻辑学');
+    expect(paths.videoNote).toBe('root/视频笔记/逻辑学/BV1YG7G6eEPR/P2 Agent基本概念.md');
+    expect(paths.termDir).toBe('root/术语/逻辑学');
+    expect(paths.rawNote).toBe('root/raw/逻辑学/BV1YG7G6eEPR/BV1YG7G6eEPR.md');
+  });
+
+  it('领域名含非法字符被清洗；空领域回落 通用', () => {
+    expect(vaultPathsFor(meta(), 'root', '逻辑:学').domainDir).toBe('逻辑_学');
+    expect(vaultPathsFor(meta(), 'root', '').domainDir).toBe('通用');
   });
 
   it('rootDir 为空时不带前导斜杠', () => {
@@ -155,12 +169,13 @@ describe('vaultPathsFor（分层目录）', () => {
 
   it('标题含非法字符被清洗', () => {
     const paths = vaultPathsFor(meta({ title: 'A/B:概念' }), 'root');
-    expect(paths.videoNote).toBe('root/视频笔记/BV1YG7G6eEPR/A_B_概念.md');
+    expect(paths.videoNote).toBe('root/视频笔记/通用/BV1YG7G6eEPR/A_B_概念.md');
   });
 
   it('bvid 缺失时回落 videoId 作课程目录', () => {
     const paths = vaultPathsFor(meta({ bvid: '' }), 'root');
-    expect(paths.videoNote).toBe('root/视频笔记/BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
+    expect(paths.videoNote).toBe('root/视频笔记/通用/BV1YG7G6eEPR_p2/P2 Agent基本概念.md');
+    expect(paths.rawNote).toBe('root/raw/通用/BV1YG7G6eEPR_p2/BV1YG7G6eEPR_p2.md');
   });
 });
 

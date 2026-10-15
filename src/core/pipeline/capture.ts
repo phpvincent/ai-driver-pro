@@ -30,11 +30,23 @@ export interface TermPayloadLike {
   relatedTerms: string[];
 }
 
-/** 笔记在 vault 中的分类目录（分层目录，借鉴 ai-knowlage） */
+/**
+ * 笔记在 vault 中的分类目录（SPEC-17 LLM wiki 层级）。
+ * 批 1 先新增 raw/moc/qa；video/term 的目录名切换（笔记/概念）随批 2 蒸馏管线一起做。
+ */
 export const NOTE_DIR = {
   video: '视频笔记',
   term: '术语',
+  /** SPEC-17：原料层（字幕原文，行级锚点，只读） */
+  raw: 'raw',
+  /** SPEC-17：人类目录 MOC（每领域一张） */
+  moc: '索引',
+  /** SPEC-17：QA 沉淀（手动存入，带溯源） */
+  qa: '问答',
 } as const;
+
+/** SPEC-17：蒸馏未判定领域时的回落目录名 */
+export const DEFAULT_DOMAIN = '通用';
 
 /** 机器索引（JSON，检索读）与人类索引（MOC，Obsidian 浏览）的相对路径 */
 export const INDEX_JSON_NAME = '_meta/index.json';
@@ -246,17 +258,174 @@ function withFrontmatter(frontmatter: string, body: string): string {
 export function vaultPathsFor(
   meta: VideoMeta,
   rootDir: string,
-): { videoNote: string; termDir: string } {
+  /** SPEC-17：蒸馏判定的领域（领域目录自动生长）；缺省回落 通用 */
+  domain: string = DEFAULT_DOMAIN,
+): { videoNote: string; termDir: string; rawNote: string; domainDir: string } {
   const course = sanitizeFileName(meta.bvid || meta.videoId);
+  const domainDir = sanitizeFileName(domain || DEFAULT_DOMAIN);
   return {
-    videoNote: joinVaultPath(rootDir, NOTE_DIR.video, course, `${sanitizeFileName(meta.title)}.md`),
-    termDir: joinVaultPath(rootDir, NOTE_DIR.term),
+    videoNote: joinVaultPath(rootDir, NOTE_DIR.video, domainDir, course, `${sanitizeFileName(meta.title)}.md`),
+    termDir: joinVaultPath(rootDir, NOTE_DIR.term, domainDir),
+    rawNote: joinVaultPath(rootDir, NOTE_DIR.raw, domainDir, course, `${sanitizeFileName(meta.bvid || meta.videoId)}.md`),
+    domainDir,
   };
 }
 
 /** 术语卡落盘路径（扁平存放于术语目录） */
 export function termNotePath(term: string, termDir: string): string {
   return joinVaultPath(termDir, `${sanitizeFileName(term)}.md`);
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-17 · LLM wiki：raw 原料层 / AGENTS.md 蒸馏宪法 / 领域 MOC
+// ---------------------------------------------------------------------------
+
+/**
+ * raw 原料层构建器：字幕全文 md 化，行级 `[mm:ss](回放URL)` 锚点——一切蒸馏的溯源终点。
+ * 无损规范化（用户决策②）：合并滚动字幕的**连续重复文本行**（保留首个时间锚）、
+ * 跳过空文本行；不做任何破坏性压缩。只读：入库后任何流程不得再写此文件。
+ */
+export function buildRawMarkdown(args: {
+  meta: VideoMeta;
+  cues: ReadonlyArray<{ startMs: number; endMs: number; text: string }>;
+  now?: Date;
+}): string {
+  const { meta: m, cues } = args;
+  const date = (args.now ?? new Date()).toISOString().slice(0, 10);
+  const head = [
+    '---',
+    `title: ${yamlValue(m.title)}`,
+    `bvid: ${yamlValue(m.bvid || m.videoId)}`,
+    `page: ${m.page}`,
+    'source: bilibili',
+    `url: ${yamlValue(videoPageUrl(m))}`,
+    `date: ${date}`,
+    'type: raw',
+    '---',
+    '',
+    `# ${m.title}（原文）`,
+    '',
+    '> [!warning] 原料层：只读。此文件是字幕原文的忠实转录（仅合并滚动重复行），',
+    '> 是所有蒸馏页的溯源终点，任何流程不得改写。',
+    '',
+  ];
+  let lastText = '';
+  const lines: string[] = [];
+  for (const cue of cues) {
+    const text = (cue.text ?? '').trim();
+    if (text.length === 0) continue;
+    if (text === lastText) continue; // 滚动字幕重复行：合并（保留首个锚点）
+    lastText = text;
+    const url = playbackUrl(m, cue.startMs);
+    const ts = formatClock(cue.startMs);
+    lines.push(url ? `- [${ts}](${url}) ${text}` : `- [${ts}] ${text}`);
+  }
+  return `${head.concat(lines).join('\n').trim()}\n`;
+}
+
+/** 毫秒 → mm:ss（raw 行锚点显示；≥1h 用 h:mm:ss） */
+function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * AGENTS.md 蒸馏宪法 + 检索规则（SPEC-17 §7）：知识库根目录的"员工手册"。
+ * 扩展是权威维护者——存入时**无则创建、有则覆盖为最新版**（用户决策）。
+ * 脱离扩展的其他 agent 读库时按此规则行事。
+ */
+export const AGENTS_MD = `# AGENTS.md · 知识库宪法（v1）
+
+> 本文件是知识库的"员工手册"：入库蒸馏的规则宪法 + 检索消费的行为准则。
+> 由「视频学习副驾」扩展维护（每次存入覆盖为最新版）；其他 Agent 读写本库时请遵循。
+
+## A. 目录契约
+
+| 目录 | 内容 | 写入规则 |
+|------|------|----------|
+| \`raw/{领域}/{课程}/\` | 字幕原文（行级 [mm:ss](回放URL) 锚点） | **只读**：入库写一次，之后任何流程不得改写 |
+| \`视频笔记/{领域}/{课程}/\` | 视频笔记（章节 ## 蒸馏 + \`%% vsc:notes %%\` 用户笔记区块） | 存入时合并刷新；区块外手写内容保留 |
+| \`术语/{领域}/\` | 概念页（术语表节点，五字段 frontmatter） | **追加式合并**：引用记录与 aliases 只增不删 |
+| \`问答/{领域}/{课程}/\` | QA 沉淀（用户手动存入） | 只追加 |
+| \`索引/\` | 每领域一张 MOC（人类目录） | 存入时重建该领域页 |
+| \`_meta/index.json\` | 机器索引（检索入口；只索引蒸馏层，raw 不进） | 存入时增量合并 |
+
+\`{领域}\` 由蒸馏判定（逻辑学/编程/考研数学…），目录随新领域自动生长；未知回落 \`通用\`。
+
+## B. 蒸馏规则（入库时强制执行）
+
+1. **原料只读**：raw 只转录不加工；蒸馏页结论句尾必须带 \`[mm:ss](回放URL)\` 溯源锚点，一路点回原文。
+2. **强制 ## 章节结构**：蒸馏页（视频笔记/概念页）正文必须用 \`##\` 二级标题分节——天然语义分割，任何检索方式都受益。
+3. **术语归一（可逆性原则）**：蒸馏产出的每个概念必须落位到概念页（新建或合并到既有），不得凭空自造表述；概念名 = frontmatter \`preferred\`（文件名即规范名）。
+4. **aliases 只增不删**：同一概念的不同表述追加进 aliases；删除别名会毁掉历史条目的可检索性。
+5. **定义是划界不是解释**：概念页定义须区分邻近概念，不是科普。
+6. **引用带身份（"以什么身份连"）**：概念页引用记录不只写"谁提到谁"，必须带**原句语境**（blockquote + 回放锚点）——同一概念在不同视频中的角色决定检索跳转方向。
+7. **来源标注**：\`source: raw\`（AI 蒸馏，待核验）vs \`source: user-note\`（用户批注，已核验）；两者冲突时**以用户笔记为准**并在概念页标注分歧。
+8. **用户笔记避让**：\`%% vsc:notes:start … %%\` 区块是用户手写保险区，AI 永不进入；讨论串中用户追问 = 用户批注（加权），助教回答 = AI 生成（待核验）。
+9. **AI 产出可辨识**：AI 蒸馏的定义/要点用 \`> [!note] AI 蒸馏 · 待核验\` callout；人改写过的段落自动免标（追加式合并不触碰改写段）。
+
+## C. 检索规则（消费本库时遵循）
+
+1. **先查库再答**：涉及库内领域的问题，先检索 \`_meta/index.json\` 命中蒸馏层，再决定是否补充外部知识。
+2. **术语经 aliases 映射**：查询词先按概念页 aliases 归一到 preferred 再匹配，防同概念多表述漏检。
+3. **答案必须带溯源锚点**：引用库内知识时给 \`[mm:ss](回放URL)\` 或 \`[[wikilink]]\`，可一路点回原文。
+4. **related 关联链**：命中笔记时把其 frontmatter 涉及的概念页一并检查——一条关联链抵三次重搜。
+5. **加权**：\`sourceType: user-note\`（用户批注）权重高于 \`ai-distill\`；raw 不参与检索（只做溯源）。
+6. **待核验内容如实标注**：引用未核验的 AI 蒸馏时保持 callout 标记可见，不冒充已认定知识。
+`;
+
+/** AGENTS.md 在 vault 根目录的落盘路径 */
+export const AGENTS_MD_PATH = 'AGENTS.md';
+
+/**
+ * 领域 MOC 构建器（人类目录，每领域一张；存入时重建该领域页）。
+ * 双链汇聚：笔记/概念/问答按类分组，Obsidian 图谱由此自然长出领域网络。
+ */
+export function buildMocMarkdown(args: {
+  domain: string;
+  entries: ReadonlyArray<KnowledgeIndexEntry>;
+}): string {
+  const inDomain = args.entries.filter(
+    (e) => (e.domain ?? '通用') === args.domain || args.domain === '通用',
+  );
+  const groups: Array<{ category: KnowledgeIndexEntry['category']; title: string }> = [
+    { category: 'video-note', title: '视频笔记' },
+    { category: 'term', title: '术语' },
+    { category: 'concept', title: '概念' },
+    { category: 'qa', title: '问答' },
+    { category: 'note', title: '其他笔记' },
+  ];
+  const lines = [
+    `# MOC · ${args.domain}`,
+    '',
+    `本领域共 ${inDomain.length} 条知识（视频笔记 ${inDomain.filter((e) => e.category === 'video-note').length} · 术语 ${inDomain.filter((e) => e.category === 'term').length}）。`,
+    '',
+    '_本文件由扩展生成；机器检索读 `_meta/index.json`，人类浏览从这里出发。_',
+    '',
+  ];
+  for (const g of groups) {
+    const items = inDomain.filter((e) => e.category === g.category);
+    if (items.length === 0) continue;
+    lines.push(`## ${g.title}`, '');
+    for (const e of items) {
+      const preview = truncatePreview(e.summaryPreview);
+      lines.push(
+        preview ? `- [[${noteLinkName(e.path, e.title)}]] — ${preview}` : `- [[${noteLinkName(e.path, e.title)}]]`,
+      );
+    }
+    lines.push('');
+  }
+  return `${lines.join('\n').trim()}\n`;
+}
+
+/** MOC 落盘路径：索引/MOC-{领域}.md */
+export function mocPath(domain: string): string {
+  return joinVaultPath(NOTE_DIR.moc, `MOC-${sanitizeFileName(domain || DEFAULT_DOMAIN)}.md`);
 }
 
 // ---------------------------------------------------------------------------
