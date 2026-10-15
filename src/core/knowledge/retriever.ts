@@ -104,6 +104,11 @@ const SCORE = {
   tags: 0.1,
   /** category='term' 且术语全等命中的加成 */
   termExact: 0.1,
+  /** SPEC-17：用户批注加权（sourceType=user-note 的条目整体加成——人写的 > AI 蒸馏；
+   * 0.35 盖过 title 0.3：用户主动输出重要性高于 AI 蒸馏的同词命中） */
+  userNote: 0.35,
+  /** SPEC-17：related 链内联补充命中的基础分（概念页经 entities 关联进入结果） */
+  related: 0.2,
 } as const;
 
 /** 归一化：去空白 + 转小写（中英混排比对口径） */
@@ -182,6 +187,11 @@ function scoreEntry(entry: KnowledgeIndexEntry, queryTerms: string[]): number {
     score += SCORE.termExact;
   }
 
+  // SPEC-17：用户批注加权——同一检索词下，人写的笔记排在 AI 蒸馏前面
+  if (entry.sourceType === 'user-note') {
+    score += SCORE.userNote;
+  }
+
   return Math.min(1, score);
 }
 
@@ -216,10 +226,35 @@ export function searchIndex(args: {
     })
     .slice(0, topK);
 
+  // SPEC-17 related 关联链内联（claw-flow 实证：一条链路抵三次重搜）：
+  // 命中条目的 entities 指向的概念页若未在结果中，以基础分补进（最多 2 条）——
+  // 命中视频笔记时顺链带出其概念页，LLM 拿到跨笔记关联，无需再检索。
+  const hitPaths = new Set(scored.map((h) => h.entry.path));
+  const related: Array<{ entry: KnowledgeIndexEntry; score: number }> = [];
+  const seenEntities = new Set<string>();
+  for (const hit of scored) {
+    for (const entity of hit.entry.entities ?? []) {
+      if (seenEntities.has(entity)) continue;
+      seenEntities.add(entity);
+      const target = entries.find(
+        (e) =>
+          !hitPaths.has(e.path) &&
+          (e.category === 'concept' || e.category === 'term') &&
+          norm(e.title) === norm(entity),
+      );
+      if (target) {
+        related.push({ entry: target, score: SCORE.related });
+        hitPaths.add(target.path);
+      }
+      if (related.length >= 2) break;
+    }
+    if (related.length >= 2) break;
+  }
+
   // 预览按预算逐条裁剪（红线 3：知识库素材不膨胀上下文）
   const out: KnowledgeHit[] = [];
   let remaining = maxChars;
-  for (const hit of scored) {
+  for (const hit of [...scored, ...related]) {
     if (remaining <= 0) break;
     const preview = hit.entry.summaryPreview ?? '';
     const kept = preview.length <= remaining ? preview : preview.slice(0, remaining);
@@ -240,4 +275,49 @@ export function buildKnowledgeContext(hits: KnowledgeHit[]): string {
     return `## ${title}（${path}）\n${summaryPreview}\n来源：${path}`;
   });
   return [KNOWLEDGE_BEGIN_MARK, ...blocks].join('\n\n');
+}
+
+
+// ---------------------------------------------------------------------------
+// SPEC-17 · Lint 体检（v1 轻量：基于机器索引的结构检查，清单展示不自动修复）
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeLintIssue {
+  /** issue: 孤儿概念页 / 断链 / 领域缺失 */
+  kind: 'orphan-concept' | 'broken-entity-link' | 'missing-domain';
+  /** 相关条目 path / 概念名 */
+  detail: string;
+}
+
+/**
+ * 知识库体检（纯函数）：
+ * - orphan-concept：概念页（category=concept）未被任何视频笔记的 entities 引用——
+ *   可能是蒸馏残留或引用来源笔记被删；
+ * - broken-entity-link：视频笔记 entities 指向的概念页在索引中不存在——蒸馏后
+ *   概念页写入失败的断链；
+ * - missing-domain：条目缺 domain（旧索引条目未蒸馏）——检索时按 通用 处理，仅提示。
+ */
+export function lintKnowledgeIndex(index: KnowledgeIndexFile | null): KnowledgeLintIssue[] {
+  const entries = index?.entries ?? [];
+  if (entries.length === 0) return [];
+  const issues: KnowledgeLintIssue[] = [];
+  const conceptTitles = new Set(entries.filter((e) => e.category === 'concept').map((e) => norm(e.title)));
+  const referenced = new Set<string>();
+  for (const e of entries) {
+    for (const entity of e.entities ?? []) referenced.add(norm(entity));
+    if (!e.domain && (e.category === 'video-note' || e.category === 'concept' || e.category === 'term')) {
+      issues.push({ kind: 'missing-domain', detail: e.path });
+    }
+  }
+  for (const e of entries) {
+    if (e.category === 'concept' && !referenced.has(norm(e.title))) {
+      issues.push({ kind: 'orphan-concept', detail: e.path });
+    }
+    for (const entity of e.entities ?? []) {
+      if (!conceptTitles.has(norm(entity))) {
+        issues.push({ kind: 'broken-entity-link', detail: `${e.path} → ${entity}` });
+      }
+    }
+  }
+  return issues;
 }

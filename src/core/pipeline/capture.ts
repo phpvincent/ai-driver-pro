@@ -35,8 +35,8 @@ export interface TermPayloadLike {
  * 批 1 先新增 raw/moc/qa；video/term 的目录名切换（笔记/概念）随批 2 蒸馏管线一起做。
  */
 export const NOTE_DIR = {
-  video: '视频笔记',
-  term: '术语',
+  video: '笔记',
+  term: '概念',
   /** SPEC-17：原料层（字幕原文，行级锚点，只读） */
   raw: 'raw',
   /** SPEC-17：人类目录 MOC（每领域一张） */
@@ -432,7 +432,7 @@ export function mocPath(domain: string): string {
 // SPEC-17 · 概念页（术语表节点）：构建与追加式合并
 // ---------------------------------------------------------------------------
 
-/** 概念页落盘路径：术语/{领域}/{preferred}.md（文件名 = 规范名） */
+/** 概念页落盘路径：概念/{领域}/{preferred}.md（文件名 = 规范名） */
 export function conceptNotePath(preferred: string, termDir: string): string {
   return joinVaultPath(termDir, `${sanitizeFileName(preferred)}.md`);
 }
@@ -643,8 +643,8 @@ export function noteLinkName(path: string, fallbackTitle: string): string {
 
 /** 索引分组展示顺序与标题（未登记的分类归到"其他笔记"） */
 const INDEX_GROUPS: Array<{ category: KnowledgeIndexEntry['category']; title: string }> = [
-  { category: 'video-note', title: '视频笔记' },
-  { category: 'term', title: '术语' },
+  { category: 'video-note', title: '笔记' },
+  { category: 'term', title: '概念' },
   { category: 'note', title: '其他笔记' },
 ];
 

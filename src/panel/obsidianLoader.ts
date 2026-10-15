@@ -38,6 +38,7 @@ import {
 } from '../core/pipeline/capture';
 import type { DistillResult } from '../core/pipeline/explain';
 import { getNote, putNote, testConnection, type ObsidianFetch } from '../sinks/obsidian';
+import { lintKnowledgeIndex, type KnowledgeLintIssue } from '../core/knowledge/retriever';
 import { downloadTextFile } from '../platform/files';
 import { createSubtitleDb, listNotesByVideo } from '../storage/db';
 import type {
@@ -464,4 +465,20 @@ export async function saveTermCardToObsidian(args: {
   }
 
   return { path, duplicate: null };
+}
+
+
+/**
+ * 知识库体检（SPEC-17 Lint v1）：拉取机器索引 → 结构检查，返回问题清单。
+ * 索引缺失/读取失败返回空清单（空库 = 无问题，不报错，红线 8）。
+ */
+export async function checkKnowledgeHealth(): Promise<KnowledgeLintIssue[]> {
+  const cfg = await getObsidianConfig();
+  if (!cfg || !cfg.baseUrl || !cfg.apiKey) return [];
+  try {
+    const file = await readIndex(cfg, defaultFetch);
+    return lintKnowledgeIndex(file);
+  } catch {
+    return [];
+  }
 }
