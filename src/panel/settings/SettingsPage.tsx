@@ -1333,7 +1333,7 @@ export function SettingsPage({
           README 的「隐私与数据」章节
         </p>
         <p className="settings-hint">
-          开源仓库：github.com/phpvincent/ai-video-driver · 交换格式契约：docs/EXCHANGE-FORMAT.md
+          开源仓库：github.com/phpvincent/ai-driver-pro · 交换格式契约：docs/EXCHANGE-FORMAT.md
         </p>
       </section>
 
