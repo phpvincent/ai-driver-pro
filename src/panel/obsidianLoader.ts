@@ -198,6 +198,8 @@ export interface SaveNoteResult {
   path: string;
   /** true = 走了本地下载（未配置 Obsidian），UI 文案需区分 */
   local?: boolean;
+  /** SPEC-17：存入即体检——对刚写回的索引跑 Lint（断链/孤儿/领域分裂），有问题在此提示 */
+  lintIssues?: KnowledgeLintIssue[];
 }
 
 /**
@@ -382,7 +384,10 @@ export async function saveVideoNoteToObsidian(args: {
     joinVaultPath(cfg.rootDir, mocPath(domain)),
     buildMocMarkdown({ domain, entries: fileNext.entries }),
   ).catch(() => undefined);
-  return { path: videoNote };
+
+  // ---- SPEC-17 存入即体检：对刚写回的索引跑 Lint（纯函数，零额外请求）----
+  const lintIssues = lintKnowledgeIndex(fileNext);
+  return { path: videoNote, ...(lintIssues.length > 0 ? { lintIssues } : {}) };
 }
 
 /**
