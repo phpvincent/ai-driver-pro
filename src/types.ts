@@ -340,8 +340,15 @@ export interface Settings {
   knowledgeSearch?: boolean;
   /** 博查搜索增强 API Key（SPEC-15：可选；国内方案，微信注册免费领 1000 次） */
   bochaApiKey?: string;
-  /** Obsidian 配置 */
+  /** Obsidian 直连配置（knowledgeSink='obsidian' 时生效） */
   obsidian?: { baseUrl?: string; apiKey?: string; rootDir?: string };
+  /**
+   * 知识库通道选择（SPEC-16）：companion 本地服务（默认）/ Obsidian 直连，互斥。
+   * 未设置时按存量判断：obsidian 段已配置 → obsidian，否则 companion。
+   */
+  knowledgeSink?: 'companion' | 'obsidian';
+  /** companion 本地知识库服务配置（knowledgeSink='companion' 时生效） */
+  companion?: { baseUrl?: string; apiKey?: string; rootDir?: string };
 }
 
 /** 概念间的逻辑关系边（draw.io 式流程；SPEC-08 冒烟 3b） */

@@ -63,10 +63,14 @@ function httpError(status: number, summary: string): Error {
   return new Error(`Obsidian HTTP ${status}${detail}`);
 }
 
-/** 网络层失败（Obsidian 未启动 / 未开启 HTTP 模式 / 证书失败） */
-function networkError(err: unknown): Error {
+/** 网络层失败：文案按通道区分（companion = 本地服务未运行；obsidian = 插件未开 HTTP 模式） */
+function networkError(err: unknown, kind: 'companion' | 'obsidian' = 'obsidian'): Error {
   const raw = err instanceof Error ? err.message : String(err);
-  return new Error(`无法连接 Obsidian${raw ? `：${raw}` : ''}（请确认 Obsidian 已启动，且 Local REST API 插件已开启 HTTP 模式）`);
+  const hint =
+    kind === 'companion'
+      ? '请确认本地知识库服务程序正在运行（双击 vsc-knowledge 程序，保持窗口开启）'
+      : '请确认 Obsidian 已启动，且 Local REST API 插件已开启 HTTP 模式';
+  return new Error(`无法连接知识库${raw ? `：${raw}` : ''}（${hint}）`);
 }
 
 /**
@@ -86,7 +90,7 @@ export async function putNote(
       body: markdown,
     });
   } catch (err) {
-    throw networkError(err);
+    throw networkError(err, cfg.kind);
   }
   if (!res.ok) throw httpError(res.status, await readSummary(res));
 }
@@ -107,7 +111,7 @@ export async function getNote(
       headers: { ...authHeaders(cfg.apiKey), Accept: '*/*' },
     });
   } catch (err) {
-    throw networkError(err);
+    throw networkError(err, cfg.kind);
   }
   if (!res.ok) throw httpError(res.status, await readSummary(res));
   return await res.text();
@@ -128,7 +132,7 @@ export async function testConnection(
       headers: { ...authHeaders(cfg.apiKey), Accept: 'application/json' },
     });
   } catch (err) {
-    throw networkError(err);
+    throw networkError(err, cfg.kind);
   }
   if (!res.ok) throw httpError(res.status, await readSummary(res));
   const rootEntries = await readRootEntries(res);
