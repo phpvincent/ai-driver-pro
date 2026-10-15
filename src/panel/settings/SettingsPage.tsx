@@ -181,6 +181,8 @@ export function SettingsPage({
   const [companion, setCompanion] = useState<ObsidianFormState>(INITIAL_COMPANION_FORM);
   /** 个人知识库二级页（SPEC-16 一轮）：entry 入口卡片 / detail 配置详情 */
   const [knowledgeView, setKnowledgeView] = useState<'entry' | 'detail'>('entry');
+  /** 模型配置二级页（SPEC-16 三轮）：entry 入口卡片 / detail 配置详情 */
+  const [modelView, setModelView] = useState<'entry' | 'detail'>('entry');
   /** 知识库通道（SPEC-16 二轮）：companion 本地服务（默认）/ Obsidian 直连，互斥 */
   const [knowledgeSink, setKnowledgeSink] = useState<'companion' | 'obsidian'>('companion');
   /** 复制数据目录路径的行内反馈 */
@@ -662,7 +664,6 @@ export function SettingsPage({
         </button>
       </header>
       <section className="settings-section">
-      <section className="settings-section">
         <div className="knowledge-sink-tabs" role="tablist">
           <button
             type="button"
@@ -861,20 +862,19 @@ export function SettingsPage({
           </p>
         )}
       </section>
-      </section>
     </div>
   );
   if (knowledgeView === 'detail') return knowledgeDetail;
 
-  return (
+  // 模型配置二级页（SPEC-16 三轮）：整页跳转——detail 模式下主列表不渲染
+  const modelDetail = (
     <div className="settings">
       <header className="settings-header">
-        <h3>设置</h3>
-        <button type="button" className="btn" onClick={onClose}>
+        <h3>模型配置</h3>
+        <button type="button" className="btn" onClick={() => setModelView('entry')}>
           返回
         </button>
       </header>
-
       {/* ① 模型配置：一个模型承担大纲 / 导图 / 问答，支持图像输入时一并接收抽帧画面 */}
       <section className="settings-section">
         <h4>模型配置（大纲 / 导图 / 问答）</h4>
@@ -1111,6 +1111,31 @@ export function SettingsPage({
             {visionSwitchFeedback.text}
           </p>
         )}
+      </section>
+    </div>
+  );
+  if (modelView === 'detail') return modelDetail;
+
+  return (
+    <div className="settings">
+      <header className="settings-header">
+        <h3>设置</h3>
+        <button type="button" className="btn" onClick={onClose}>
+          返回
+        </button>
+      </header>
+
+      {/* ① 模型配置：入口卡片 → 二级页（模型 / 当前策略 / 抽帧开关） */}
+      <section className="settings-section">
+        <h4>模型配置</h4>
+        <button type="button" className="knowledge-entry" onClick={() => setModelView('detail')}>
+          <span className="knowledge-entry-title">
+            {strategyLines[0]}
+          </span>
+          <span className="knowledge-entry-sub">
+            大纲 / 导图 / 问答共用一套模型 · 抽帧开关也在这里 · 点击修改 →
+          </span>
+        </button>
       </section>
 
       {/* 个人知识库（SPEC-16 一轮）：入口卡片 → 点击进二级页（通道指引 + 配置 + 测试） */}
