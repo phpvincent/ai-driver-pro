@@ -545,6 +545,8 @@ export async function distillVideoNote(args: {
   userNotesMarkdown: string;
   /** SPEC-17 概念合并：库内既有概念清单（透传给蒸馏管线） */
   existingConcepts?: ReadonlyArray<{ name: string; aliases: string[] }>;
+  /** SPEC-17 领域归一：库内既有领域清单（透传给蒸馏管线） */
+  existingDomains?: ReadonlyArray<string>;
   metaTitle: string;
 }): Promise<DistillResult> {
   const settings = (await fetchSettings()) as unknown as Settings;
@@ -569,6 +571,7 @@ export async function distillVideoNote(args: {
     videoNoteMarkdown: args.videoNoteMarkdown,
     userNotesMarkdown: args.userNotesMarkdown,
     existingConcepts: args.existingConcepts,
+    existingDomains: args.existingDomains,
     metaTitle: args.metaTitle,
     modelFn,
     getSystemPrompt: getDistillSystemPrompt,

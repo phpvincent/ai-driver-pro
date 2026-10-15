@@ -491,7 +491,9 @@ export function buildConceptPageMarkdown(args: {
     // domains 多值：概念全局唯一，出现在哪些领域在此累积（跨领域复用追加）
     `domains: [${yamlValue(args.domain)}]`,
     'type: concept',
-    `tags: [ai, 概念, ${yamlValue(args.domain)}]`,
+    // 嵌套标签：复合领域名转斜杠形式（公考_判断推理 → #公考/判断推理），
+    // Obsidian 标签面板原生层级折叠——浏览体验等同多层目录，但不把层级写进路径
+    `tags: [ai, 概念, ${yamlValue(args.domain.replace(/_/g, '/'))}]`,
     `date: ${date}`,
     '---',
     '',

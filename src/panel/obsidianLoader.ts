@@ -221,6 +221,8 @@ export async function saveVideoNoteToObsidian(args: {
     userNotesMarkdown: string;
     /** SPEC-17 概念合并：库内既有概念清单（蒸馏据此判定合并 or 新建） */
     existingConcepts: ReadonlyArray<{ name: string; aliases: string[] }>;
+    /** SPEC-17 领域归一：库内既有领域清单（模型优先复用，防同域异名分裂目录） */
+    existingDomains: ReadonlyArray<string>;
   }) => Promise<DistillResult>;
   fetchFn?: ObsidianFetch;
 }): Promise<SaveNoteResult> {
@@ -250,10 +252,15 @@ export async function saveVideoNoteToObsidian(args: {
       const existingConcepts = (existingIndex?.entries ?? [])
         .filter((e) => e.category === 'concept' || e.category === 'term')
         .map((e) => ({ name: e.title, aliases: e.terms.filter((t) => t !== e.title) }));
+      // 领域归一：distinct 领域名喂模型（优先复用，防 公考_判断推理 vs 公考行测_判断推理 分裂）
+      const existingDomains = [...new Set((existingIndex?.entries ?? [])
+        .map((e) => e.domain)
+        .filter((d): d is string => typeof d === 'string' && d.length > 0))];
       const distilled = await args.distill({
         videoNoteMarkdown: noteDraft.markdown,
         userNotesMarkdown: userNotesMd,
         existingConcepts,
+        existingDomains,
       });
       domain = distilled.domain?.trim() || DEFAULT_DOMAIN;
       concepts = distilled.concepts ?? [];
