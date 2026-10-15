@@ -9,6 +9,8 @@ import { setGenerationSource } from './generationTrace';
 import { VISION } from '../config';
 import { planFrames } from './framesClient';
 import { chatCompletion } from '../core/harness/modelClient';
+import { distillForKnowledge, type DistillResult } from '../core/pipeline/explain';
+import { getDistillSystemPrompt } from '../prompts';
 import {
   buildKnowledgeContext,
   extractQueryTerms,
@@ -527,4 +529,61 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
   });
   await saveQaRecord(db, record).catch(() => {});
   return { answer, record, sources: web.snippets, hits: knowledge.hits };
+}
+
+
+// ---------------------------------------------------------------------------
+// SPEC-17 · 入库蒸馏入口（App 的存入回调注入 obsidianLoader）
+// ---------------------------------------------------------------------------
+
+/**
+ * 视频笔记入库蒸馏：领域判定 + 概念抽取（走 distill prompt 0.1.0，
+ * callModelWithRetry 同既有管线口径）。失败 throw——由存入编排降级。
+ */
+export async function distillVideoNote(args: {
+  videoNoteMarkdown: string;
+  userNotesMarkdown: string;
+  metaTitle: string;
+}): Promise<DistillResult> {
+  const settings = (await fetchSettings()) as unknown as Settings;
+  const model = resolveModel(settings);
+  if (!model?.apiKey) {
+    throw new Error('模型未配置：无法蒸馏');
+  }
+  const modelFn: ExplainModelFn = ({ systemPrompt, userPrompt }) =>
+    chatCompletion({
+      baseUrl: model.baseUrl,
+      apiKey: model.apiKey,
+      model: model.model,
+      temperature: model.temperature.qa,
+      maxTokens: model.maxTokens,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      responseFormatJson: true,
+    });
+  return await distillForKnowledge({
+    videoNoteMarkdown: args.videoNoteMarkdown,
+    userNotesMarkdown: args.userNotesMarkdown,
+    metaTitle: args.metaTitle,
+    modelFn,
+    getSystemPrompt: getDistillSystemPrompt,
+    onValidationError: (error) => {
+      // 两次校验失败留痕（同 searchWithLog 口径）：蒸馏失败原因进 LLM 日志，降级不静默
+      emitLlmLog({
+        id: newLogId(),
+        at: new Date().toISOString(),
+        label: 'distill',
+        model: model.model,
+        endpointHost: hostOfUrl(model.baseUrl),
+        ok: false,
+        durationMs: 0,
+        inputChars: args.videoNoteMarkdown.length,
+        outputChars: 0,
+        requestPreview: `蒸馏：${args.metaTitle}`,
+        responsePreview: error.slice(0, 200),
+      });
+    },
+  });
 }

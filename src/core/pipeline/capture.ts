@@ -429,6 +429,102 @@ export function mocPath(domain: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// SPEC-17 · 概念页（术语表节点）：构建与追加式合并
+// ---------------------------------------------------------------------------
+
+/** 概念页落盘路径：术语/{领域}/{preferred}.md（文件名 = 规范名） */
+export function conceptNotePath(preferred: string, termDir: string): string {
+  return joinVaultPath(termDir, `${sanitizeFileName(preferred)}.md`);
+}
+
+/** 概念页引用记录块（"以什么身份连"：带原句语境 + 回放锚点 + 来源标注） */
+export function conceptReferenceBlock(args: {
+  videoTitle: string;
+  anchorSec: number;
+  sourceExcerpt: string;
+  sourceType: 'raw' | 'user-note';
+  playbackUrl: string;
+}): string {
+  const ts = formatClock(args.anchorSec * 1000);
+  const link = args.playbackUrl ? `[${ts}](${args.playbackUrl})` : `[${ts}]`;
+  return [
+    `### ${args.videoTitle} ${link}`,
+    `- source: ${args.sourceType}`,
+    `- 概念语境：`,
+    '',
+    `> "${args.sourceExcerpt}"`,
+    '',
+  ].join('\n');
+}
+
+/** 新建概念页（五字段 frontmatter + 划界定义待核验 callout + 首条引用记录） */
+export function buildConceptPageMarkdown(args: {
+  preferred: string;
+  aliases: string[];
+  definition: string;
+  broader: string;
+  domain: string;
+  reference: string;
+  now?: Date;
+}): string {
+  const date = (args.now ?? new Date()).toISOString().slice(0, 10);
+  const aliases = args.aliases.filter((a) => a.trim().length > 0 && a !== args.preferred);
+  const lines = [
+    '---',
+    `title: ${yamlValue(args.preferred)}`,
+    `preferred: ${yamlValue(args.preferred)}`,
+    `aliases: [${aliases.map((a) => yamlValue(a)).join(', ')}]`,
+    ...(args.broader ? [`broader: ${yamlValue(args.broader)}`] : []),
+    `domain: ${yamlValue(args.domain)}`,
+    'type: concept',
+    `tags: [ai, 概念, ${yamlValue(args.domain)}]`,
+    `date: ${date}`,
+    '---',
+    '',
+    `# ${args.preferred}`,
+    '',
+    '> [!note] AI 蒸馏 · 待核验',
+    `> **定义（划界）**：${args.definition}`,
+    '',
+    '## 引用记录',
+    '',
+    args.reference,
+  ];
+  return `${lines.join('\n').trim()}\n`;
+}
+
+/**
+ * 概念页**追加式合并**（AGENTS.md 宪法 B4/B6/B9）：
+ * - aliases **只增不删**（frontmatter 行合并去重写回）
+ * - 引用记录块文末追加（不触碰任何既有内容）
+ * - 定义不覆盖：已有页不再写定义（人改写过的定义/删掉的待核验标记不会被复活）
+ */
+export function mergeConceptPageMarkdown(args: {
+  existing: string;
+  newAliases: string[];
+  reference: string;
+}): string {
+  let merged = args.existing;
+  // aliases 行合并（只增不删）
+  const aliasMatch = merged.match(/^aliases: \[(.*)\]$/m);
+  const add = args.newAliases
+    .map((a) => a.trim())
+    .filter((a) => a.length > 0)
+    .filter((a) => !aliasMatch?.[1]?.includes(yamlValue(a)));
+  if (add.length > 0 && aliasMatch) {
+    const current = aliasMatch[1].trim();
+    merged = merged.replace(
+      /^aliases: \[.*\]$/m,
+      `aliases: [${current ? `${current}, ` : ''}${add.map((a) => yamlValue(a)).join(', ')}]`,
+    );
+  }
+  // 引用记录文末追加
+  const base = merged.trimEnd();
+  const sep = base.includes('## 引用记录') ? '\n\n' : '\n\n## 引用记录\n\n';
+  return `${base}${sep}${args.reference.trim()}\n`;
+}
+
+// ---------------------------------------------------------------------------
 // 视频笔记
 // ---------------------------------------------------------------------------
 

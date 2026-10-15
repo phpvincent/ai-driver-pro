@@ -11,6 +11,7 @@ import conceptMapMd from './concept-map.md?raw';
 import segmentQaMd from './segment-qa.md?raw';
 import termExplainerMd from './term-explainer.md?raw';
 import knowledgeCaptureMd from './knowledge-capture.md?raw';
+import distillMd from './distill.md?raw';
 import personaMd from './persona.md?raw';
 import framePlanMd from './frame-plan.md?raw';
 import subtitlePunctuateMd from './subtitle-punctuate.md?raw';
@@ -50,6 +51,7 @@ const CONCEPT_MAP_HEADER = parsePromptHeader(conceptMapMd);
 const TERM_EXPLAINER_HEADER = parsePromptHeader(termExplainerMd);
 const SEGMENT_QA_HEADER = parsePromptHeader(segmentQaMd);
 const KNOWLEDGE_CAPTURE_HEADER = parsePromptHeader(knowledgeCaptureMd);
+const DISTILL_HEADER = parsePromptHeader(distillMd);
 const PERSONA_HEADER = parsePromptHeader(personaMd);
 const FRAME_PLAN_HEADER = parsePromptHeader(framePlanMd);
 const SUBTITLE_PUNCTUATE_HEADER = parsePromptHeader(subtitlePunctuateMd);
@@ -65,6 +67,7 @@ export const PROMPT_VERSIONS = {
   termExplainer: TERM_EXPLAINER_HEADER.promptVersion,
   segmentQa: SEGMENT_QA_HEADER.promptVersion,
   knowledgeCapture: KNOWLEDGE_CAPTURE_HEADER.promptVersion,
+  distill: DISTILL_HEADER.promptVersion,
   persona: PERSONA_HEADER.promptVersion,
   framePlan: FRAME_PLAN_HEADER.promptVersion,
   subtitlePunctuate: SUBTITLE_PUNCTUATE_HEADER.promptVersion,
@@ -110,6 +113,11 @@ export function getKnowledgeCaptureSystemPrompt(): string {
  * 问答动态角色判定 system prompt 正文（单一事实源：src/prompts/persona.md）。
  * 每视频一次判定（judgePersona）后缓存，注入问答时只追加角色设定，不覆盖既有规则。
  */
+/** 蒸馏 system prompt 正文（SPEC-17：入库蒸馏——领域判定 + 概念抽取） */
+export function getDistillSystemPrompt(): string {
+  return stripPromptHeaderComments(distillMd);
+}
+
 export function getPersonaSystemPrompt(): string {
   return stripPromptHeaderComments(personaMd);
 }

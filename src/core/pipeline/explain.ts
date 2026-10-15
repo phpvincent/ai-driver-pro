@@ -181,6 +181,83 @@ export function parseSegmentAnswerPayload(content: string): SegmentAnswerPayload
   return parseJsonWithSchema(content, SegmentAnswerSchema, 'SegmentAnswerSchema');
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-17 · 入库蒸馏：领域判定 + 概念抽取
+// ---------------------------------------------------------------------------
+
+/** 蒸馏产物（严格 JSON）：领域 + 概念列表（AGENTS.md 宪法 B 节强制执行） */
+export const DistillConceptSchema = z.object({
+  /** 概念规范名（首选术语 = 概念页文件名） */
+  name: z.string().min(1),
+  /** 同一概念的其他叫法（含用户口语表述）；只增不删 */
+  aliases: z.array(z.string()),
+  /** 划界式定义：是什么 + 与邻近概念的差异 */
+  definition: z.string().min(1),
+  /** 上位概念（空串 = 无） */
+  broader: z.string(),
+  /** 视频中最典型讲解时间点（秒，不得编造） */
+  anchorSec: z.number().nonnegative(),
+  /** 讲解原文/用户笔记中的一句原话（引用记录的语境） */
+  sourceExcerpt: z.string().min(1),
+});
+
+export const DistillResultSchema = z.object({
+  /** 知识领域目录名（2~6 字中文；拿不准 = 通用） */
+  domain: z.string().min(1),
+  concepts: z.array(DistillConceptSchema).max(8),
+});
+
+export type DistillConcept = z.infer<typeof DistillConceptSchema>;
+export type DistillResult = z.infer<typeof DistillResultSchema>;
+
+export function parseDistillResult(content: string): DistillResult {
+  return parseJsonWithSchema(content, DistillResultSchema, 'DistillResultSchema');
+}
+
+export interface DistillArgs {
+  /** 视频笔记 markdown（章节蒸馏层：## 章节/要点/术语） */
+  videoNoteMarkdown: string;
+  /** 用户笔记与讨论串序列化（最高优先级输入；无则空串） */
+  userNotesMarkdown: string;
+  /** 视频元信息（标题/UP 主等，辅助领域判定） */
+  metaTitle: string;
+  modelFn: ExplainModelFn;
+  /** system prompt 单一事实源注入（接线层传 prompts/index getter） */
+  getSystemPrompt?: () => string;
+  /** 两次校验均失败时的回调（LLM 日志留痕） */
+  onValidationError?: (error: string) => void;
+}
+
+/**
+ * 入库蒸馏（SPEC-17 §5 Ingest）：视频笔记 + 用户批注 → { domain, concepts }。
+ * 调用方负责失败降级（domain 回落 通用 / 概念页跳过），本函数 throw 即降级信号。
+ */
+export async function distillForKnowledge(args: DistillArgs): Promise<DistillResult> {
+  const systemPrompt = args.getSystemPrompt?.() ?? '';
+  const parts: string[] = [
+    `视频标题：${args.metaTitle}`,
+    '',
+    '## 视频笔记（章节蒸馏层）',
+    '',
+    args.videoNoteMarkdown.slice(0, 6_000),
+  ];
+  if (args.userNotesMarkdown.trim().length > 0) {
+    parts.push(
+      '',
+      '## 用户笔记与讨论串（用户批注，最高优先级口径）',
+      '',
+      args.userNotesMarkdown.slice(0, 2_000),
+    );
+  }
+  const userPrompt = `${parts.join('\n')}\n\n请按系统指令蒸馏，输出严格 JSON。`;
+  return await callModelWithRetry(
+    args.modelFn,
+    { systemPrompt, userPrompt },
+    parseDistillResult,
+    args.onValidationError,
+  );
+}
+
 /**
  * 单次调用 + 校验失败附错误重试 1 次（红线 4，同 outline 的重试口径：
  * 仅解析/校验失败重试；modelFn 本身异常直接向上传播）。
