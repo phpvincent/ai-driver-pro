@@ -24,7 +24,7 @@ export const HELP_TABS: Array<{ name: string; body: string }> = [
   { name: '大纲', body: '按字幕生成章节与要点，时间戳可点击跳播；可记笔记（整章/要点/时间点三种锚点）；支持导出分享、导入他人大纲。' },
   { name: '导图', body: '把大纲重组为「阶段 → 概念」知识流程图，播放跟随高亮；概念图/时间轴多种视图。' },
   { name: '问答', body: '划词解释、区间问答、自由提问；带 5 轮对话记忆；回答里的时间戳可跳播；支持题目截图。' },
-  { name: '存入 Obsidian', body: '配置了 Obsidian 落进你的知识库；没配置也能一键下载 .md 到本地（自带来源与标签，放进任何笔记软件都能检索）。' },
+  { name: '存入知识库', body: '配置个人知识库（本地服务或 Obsidian）后笔记落进你的知识库；没配置也能一键下载 .md 到本地（自带来源与标签，放进任何笔记软件都能检索）。' },
 ];
 
 export const HELP_FAQ: Array<{ q: string; a: string }> = [

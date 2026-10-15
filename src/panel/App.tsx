@@ -422,7 +422,7 @@ export function App() {
     try {
       const { path, local } = await saveVideoNoteToObsidian({ videoId: video.videoId, meta, sections });
       void trackUsage('save');
-      return local ? `未配置 Obsidian，已下载 .md：${path}` : `已存入 ${path}`;
+      return local ? `未配置知识库同步，已下载 .md：${path}` : `已存入 ${path}`;
     } catch (err) {
       return `存库失败：${err instanceof Error ? err.message : String(err)}`;
     }
@@ -444,7 +444,7 @@ export function App() {
           existingTerms: [],
         });
         void trackUsage('save');
-        return local ? `未配置 Obsidian，已下载 .md：${path}` : `已存入 ${path}`;
+        return local ? `未配置知识库同步，已下载 .md：${path}` : `已存入 ${path}`;
       }
       const { path, local } = await saveVideoNoteToObsidian({
         videoId: video.videoId,
@@ -452,7 +452,7 @@ export function App() {
         sections,
       });
       void trackUsage('save');
-      return local ? `未配置 Obsidian，已下载 .md：${path}` : `已存入 ${path}`;
+      return local ? `未配置知识库同步，已下载 .md：${path}` : `已存入 ${path}`;
     } catch (err) {
       return err instanceof Error ? err.message : `存库失败：${String(err)}`;
     }

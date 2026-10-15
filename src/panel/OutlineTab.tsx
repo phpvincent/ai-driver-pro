@@ -508,7 +508,7 @@ export function OutlineTab(props: OutlineTabProps) {
     return subscribeGenBusy(sync);
   }, []);
   const [regenError, setRegenError] = useState<{ sectionId: string; text: string } | null>(null);
-  /** 存库（存入 Obsidian）：进行中标记与行内结果文本（红线 8：失败不崩面板） */
+  /** 存库（存入知识库）：进行中标记与行内结果文本（红线 8：失败不崩面板） */
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ ok: boolean; text: string } | null>(null);
   /** 导入/导出（SPEC-09 9.6）：进行中 / 结果文案 / 待冲突三选一的导入文件 */
@@ -645,14 +645,14 @@ export function OutlineTab(props: OutlineTabProps) {
       });
   };
 
-  /** 一键存入 Obsidian：成功显示返回的笔记路径，失败显示错误摘要 */
+  /** 一键存入知识库：成功显示返回的笔记路径，失败显示错误摘要 */
   const handleSaveVideoNote = () => {
     const save = props.onSaveVideoNote;
     if (!save) return;
     setSaving(true);
     setSaveResult(null);
     save()
-      .then((path) => setSaveResult({ ok: true, text: path ? `已存入：${path}` : '已存入 Obsidian' }))
+      .then((path) => setSaveResult({ ok: true, text: path ? `已存入：${path}` : '已存入知识库' }))
       .catch((err: unknown) =>
         setSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) }),
       )
@@ -892,7 +892,7 @@ export function OutlineTab(props: OutlineTabProps) {
             onClick={handleSaveVideoNote}
             disabled={saving}
           >
-            {saving ? '存入中…' : '存入 Obsidian'}
+            {saving ? '存入中…' : '存入知识库'}
           </button>
         )}
         <button
