@@ -620,6 +620,223 @@ export function SettingsPage({
     return describeModelStrategy(temp);
   }
 
+  // 个人知识库二级页（SPEC-16 二轮）：整页跳转——detail 模式下设置主列表不渲染
+  const knowledgeDetail = (
+    <div className="settings">
+      <header className="settings-header">
+        <h3>个人知识库</h3>
+        <button type="button" className="btn" onClick={() => setKnowledgeView('entry')}>
+          返回
+        </button>
+      </header>
+      <section className="settings-section">
+      <section className="settings-section">
+        <div className="knowledge-sink-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={knowledgeSink === 'companion'}
+            className={knowledgeSink === 'companion' ? 'knowledge-sink-tab active' : 'knowledge-sink-tab'}
+            onClick={() => {
+              setKnowledgeSink('companion');
+              setObsidian((prev) => ({
+                ...prev,
+                baseUrl: prev.baseUrl.trim() === OBSIDIAN.baseUrl ? COMPANION.baseUrl : prev.baseUrl,
+              }));
+              setObsidianFeedback(null);
+            }}
+          >
+            本地知识库服务
+            <small>推荐 · 无需 Obsidian</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={knowledgeSink === 'obsidian'}
+            className={knowledgeSink === 'obsidian' ? 'knowledge-sink-tab active' : 'knowledge-sink-tab'}
+            onClick={() => {
+              setKnowledgeSink('obsidian');
+              setObsidian((prev) => ({
+                ...prev,
+                baseUrl: prev.baseUrl.trim() === COMPANION.baseUrl ? OBSIDIAN.baseUrl : prev.baseUrl,
+              }));
+              setObsidianFeedback(null);
+            }}
+          >
+            Obsidian 直连
+            <small>已装 Obsidian 的用户</small>
+          </button>
+        </div>
+        <label
+          className="field"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+        >
+          <input
+            type="checkbox"
+            checked={obsidian.enabled}
+            onChange={(e) => {
+              setObsidian({ ...obsidian, enabled: e.target.checked });
+              setObsidianFeedback(null);
+            }}
+          />
+          <span>启用知识库同步（不勾 = 暂时停用：存入将直接下载 .md 到本地，凭据保留不擦除）</span>
+        </label>
+        {knowledgeSink === 'companion' ? (
+          <details className="settings-guide" open>
+            <summary>操作指引（4 步）</summary>
+            <ol>
+              <li>
+                <a href={COMPANION.downloadUrl} target="_blank" rel="noreferrer">
+                  下载本地知识库服务（GitHub Releases）
+                </a>{' '}
+                → 选你系统的版本（Windows 选 vsc-knowledge-win64.exe / macOS 选 vsc-knowledge-macos）
+                → 双击运行。首次运行 macOS 可能提示「无法验证开发者」：右键 → 打开 → 再点打开
+              </li>
+              <li>
+                程序窗口会打印「API Key」→ 复制粘贴到本页「API Key」；「接口地址」保持{' '}
+                <code>{COMPANION.baseUrl}</code> 默认即可（程序开着才能同步，关窗口 = 停止）
+              </li>
+              <li>
+                「笔记根目录」填一个文件夹名（如 <code>副驾</code>，不存在会自动创建）→
+                点「保存」→「测试连接」显示成功即打通
+              </li>
+              <li>
+                笔记保存在 <code>~/vsc-knowledge/</code>，带层级目录（视频笔记按课程分夹）与双索引
+                （_索引.md 人类目录 + _meta/index.json 机器检索）；
+                日后想用 Obsidian 的功能，直接把该目录「打开为仓库」即可
+              </li>
+            </ol>
+          </details>
+        ) : (
+          <details className="settings-guide" open>
+            <summary>操作指引（5 步）</summary>
+            <ol>
+              <li>
+                下载并安装{' '}
+                <a href={OBSIDIAN.downloadUrl} target="_blank" rel="noreferrer">
+                  Obsidian（obsidian.md）
+                </a>{' '}
+                → 打开后「创建新仓库」（选一个本地文件夹，随便起名）
+              </li>
+              <li>
+                Obsidian 左下角齿轮（设置）→「第三方插件」→ 关闭安全模式 →「浏览」→ 搜索{' '}
+                <code>Local REST API</code> → 安装并启用
+              </li>
+              <li>
+                在第三方插件列表点 Local REST API 的齿轮进入插件设置：**打开「Enable
+                Non-encrypted (HTTP) server」开关**（新版默认只开 HTTPS——自签证书扩展无法信任，
+                必须用 HTTP），端口默认 27123 → 本页「接口地址」保持 <code>{OBSIDIAN.baseUrl}</code>
+              </li>
+              <li>
+                插件设置页找到「API Key」→ 点复制 → 粘贴到本页「API Key」
+                （插件主页见{' '}
+                <a href={OBSIDIAN.pluginUrl} target="_blank" rel="noreferrer">
+                  GitHub
+                </a>
+                ）
+              </li>
+              <li>
+                「笔记根目录」填一个仓内文件夹名（如 <code>副驾</code>，不存在会自动创建）→ 回本页点「保存」→「测试连接」
+              </li>
+            </ol>
+          </details>
+        )}
+        <label className="field">
+          <span>接口地址</span>
+          <input
+            type="text"
+            placeholder={knowledgeSink === 'companion' ? COMPANION.baseUrl : OBSIDIAN.baseUrl}
+            value={obsidian.baseUrl}
+            onChange={updateObsidian('baseUrl')}
+          />
+        </label>
+        <label className="field">
+          <span>API Key</span>
+          <input
+            type="password"
+            placeholder={knowledgeSink === 'companion' ? '粘贴程序窗口打印的 API Key' : '粘贴 Local REST API 的 API Key'}
+            value={obsidian.apiKey}
+            onChange={updateObsidian('apiKey')}
+          />
+        </label>
+        <label className="field">
+          <span>笔记根目录</span>
+          <input
+            type="text"
+            placeholder="如：视频学习副驾"
+            value={obsidian.rootDir}
+            onChange={updateObsidian('rootDir')}
+          />
+        </label>
+        <label
+          className="field"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+        >
+          <input
+            type="checkbox"
+            checked={knowledgeSearch}
+            onChange={(e) => {
+              setKnowledgeSearch(e.target.checked);
+              setObsidianFeedback(null);
+            }}
+          />
+          <span>问答时检索个人知识库（默认开启）</span>
+        </label>
+
+        <div className="field-row">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSaveObsidian}
+            disabled={obsidianSaving}
+          >
+            {obsidianSaving ? '保存中…' : '保存'}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleTestObsidian}
+            disabled={obsidianTesting}
+          >
+            {obsidianTesting ? '测试中…' : '测试连接'}
+          </button>
+          {knowledgeSink === 'companion' && (
+            <button
+              type="button"
+              className="btn"
+              title="复制本地知识库数据目录路径，粘贴到文件管理器地址栏即可打开"
+              onClick={() => {
+                const isWin = /Windows/i.test(navigator.userAgent);
+                void navigator.clipboard
+                  .writeText(isWin ? '%USERPROFILE%\\vsc-knowledge' : '~/vsc-knowledge')
+                  .then(() =>
+                    setCopyPathFeedback('已复制路径：粘贴到文件管理器地址栏即可打开（Windows 回车 / Mac ⌘+Shift+G 前往）'),
+                  )
+                  .catch(() => setCopyPathFeedback('复制失败，请手动记录：~/vsc-knowledge'));
+              }}
+            >
+              复制数据目录路径
+            </button>
+          )}
+        </div>
+        {knowledgeSink === 'companion' && copyPathFeedback && (
+          <p className="settings-hint">{copyPathFeedback}</p>
+        )}
+        {obsidianFeedback && (
+          <p
+            className={
+              obsidianFeedback.kind === 'ok' ? 'settings-hint' : 'settings-hint settings-error'
+            }
+          >
+            {obsidianFeedback.text}
+          </p>
+        )}
+      </section>
+      </section>
+    </div>
+  );
+  if (knowledgeView === 'detail') return knowledgeDetail;
+
   return (
     <div className="settings">
       <header className="settings-header">
@@ -873,7 +1090,7 @@ export function SettingsPage({
         <button type="button" className="knowledge-entry" onClick={() => setKnowledgeView('detail')}>
           <span className="knowledge-entry-title">
             {obsidian.enabled && obsidian.apiKey.trim()
-              ? `已启用（${obsidian.baseUrl.includes('27123') ? 'Obsidian 直连' : '本地知识库服务'}）`
+              ? `已启用（${knowledgeSink === 'obsidian' ? 'Obsidian 直连' : '本地知识库服务'}）`
               : '未配置（存入将直接下载 .md）'}
           </span>
           <span className="knowledge-entry-sub">
@@ -881,216 +1098,7 @@ export function SettingsPage({
           </span>
         </button>
       </section>
-      {knowledgeView === 'detail' && (
-      <section className="settings-section">
-        <div className="knowledge-detail-head">
-          <button type="button" className="btn" onClick={() => setKnowledgeView('entry')}>
-            ← 返回
-          </button>
-          <h4>个人知识库</h4>
-        </div>
-        <div className="knowledge-sink-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={knowledgeSink === 'companion'}
-            className={knowledgeSink === 'companion' ? 'knowledge-sink-tab active' : 'knowledge-sink-tab'}
-            onClick={() => {
-              setKnowledgeSink('companion');
-              setObsidian((prev) => ({
-                ...prev,
-                baseUrl: prev.baseUrl.trim() === OBSIDIAN.baseUrl ? COMPANION.baseUrl : prev.baseUrl,
-              }));
-              setObsidianFeedback(null);
-            }}
-          >
-            本地知识库服务
-            <small>推荐 · 无需 Obsidian</small>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={knowledgeSink === 'obsidian'}
-            className={knowledgeSink === 'obsidian' ? 'knowledge-sink-tab active' : 'knowledge-sink-tab'}
-            onClick={() => {
-              setKnowledgeSink('obsidian');
-              setObsidian((prev) => ({
-                ...prev,
-                baseUrl: prev.baseUrl.trim() === COMPANION.baseUrl ? OBSIDIAN.baseUrl : prev.baseUrl,
-              }));
-              setObsidianFeedback(null);
-            }}
-          >
-            Obsidian 直连
-            <small>已装 Obsidian 的用户</small>
-          </button>
-        </div>
-        <label
-          className="field"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-        >
-          <input
-            type="checkbox"
-            checked={obsidian.enabled}
-            onChange={(e) => {
-              setObsidian({ ...obsidian, enabled: e.target.checked });
-              setObsidianFeedback(null);
-            }}
-          />
-          <span>启用知识库同步（不勾 = 暂时停用：存入将直接下载 .md 到本地，凭据保留不擦除）</span>
-        </label>
-        {knowledgeSink === 'companion' ? (
-          <details className="settings-guide" open>
-            <summary>操作指引（4 步）</summary>
-            <ol>
-              <li>
-                <a href={COMPANION.downloadUrl} target="_blank" rel="noreferrer">
-                  下载本地知识库服务（GitHub Releases）
-                </a>{' '}
-                → 选你系统的版本（Windows 选 vsc-knowledge-win64.exe / macOS 选 vsc-knowledge-macos）
-                → 双击运行。首次运行 macOS 可能提示「无法验证开发者」：右键 → 打开 → 再点打开
-              </li>
-              <li>
-                程序窗口会打印「API Key」→ 复制粘贴到本页「API Key」；「接口地址」保持{' '}
-                <code>{COMPANION.baseUrl}</code> 默认即可（程序开着才能同步，关窗口 = 停止）
-              </li>
-              <li>
-                「笔记根目录」填一个文件夹名（如 <code>副驾</code>，不存在会自动创建）→
-                点「保存」→「测试连接」显示成功即打通
-              </li>
-              <li>
-                笔记保存在 <code>~/vsc-knowledge/</code>，带层级目录（视频笔记按课程分夹）与双索引
-                （_索引.md 人类目录 + _meta/index.json 机器检索）；
-                日后想用 Obsidian 的功能，直接把该目录「打开为仓库」即可
-              </li>
-            </ol>
-          </details>
-        ) : (
-          <details className="settings-guide" open>
-            <summary>操作指引（5 步）</summary>
-            <ol>
-              <li>
-                下载并安装{' '}
-                <a href={OBSIDIAN.downloadUrl} target="_blank" rel="noreferrer">
-                  Obsidian（obsidian.md）
-                </a>{' '}
-                → 打开后「创建新仓库」（选一个本地文件夹，随便起名）
-              </li>
-              <li>
-                Obsidian 左下角齿轮（设置）→「第三方插件」→ 关闭安全模式 →「浏览」→ 搜索{' '}
-                <code>Local REST API</code> → 安装并启用
-              </li>
-              <li>
-                在第三方插件列表点 Local REST API 的齿轮进入插件设置：**打开「Enable
-                Non-encrypted (HTTP) server」开关**（新版默认只开 HTTPS——自签证书扩展无法信任，
-                必须用 HTTP），端口默认 27123 → 本页「接口地址」保持 <code>{OBSIDIAN.baseUrl}</code>
-              </li>
-              <li>
-                插件设置页找到「API Key」→ 点复制 → 粘贴到本页「API Key」
-                （插件主页见{' '}
-                <a href={OBSIDIAN.pluginUrl} target="_blank" rel="noreferrer">
-                  GitHub
-                </a>
-                ）
-              </li>
-              <li>
-                「笔记根目录」填一个仓内文件夹名（如 <code>副驾</code>，不存在会自动创建）→ 回本页点「保存」→「测试连接」
-              </li>
-            </ol>
-          </details>
-        )}
-        <label className="field">
-          <span>接口地址</span>
-          <input
-            type="text"
-            placeholder={knowledgeSink === 'companion' ? COMPANION.baseUrl : OBSIDIAN.baseUrl}
-            value={obsidian.baseUrl}
-            onChange={updateObsidian('baseUrl')}
-          />
-        </label>
-        <label className="field">
-          <span>API Key</span>
-          <input
-            type="password"
-            placeholder={knowledgeSink === 'companion' ? '粘贴程序窗口打印的 API Key' : '粘贴 Local REST API 的 API Key'}
-            value={obsidian.apiKey}
-            onChange={updateObsidian('apiKey')}
-          />
-        </label>
-        <label className="field">
-          <span>笔记根目录</span>
-          <input
-            type="text"
-            placeholder="如：视频学习副驾"
-            value={obsidian.rootDir}
-            onChange={updateObsidian('rootDir')}
-          />
-        </label>
-        <label
-          className="field"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-        >
-          <input
-            type="checkbox"
-            checked={knowledgeSearch}
-            onChange={(e) => {
-              setKnowledgeSearch(e.target.checked);
-              setObsidianFeedback(null);
-            }}
-          />
-          <span>问答时检索个人知识库（默认开启）</span>
-        </label>
 
-        <div className="field-row">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleSaveObsidian}
-            disabled={obsidianSaving}
-          >
-            {obsidianSaving ? '保存中…' : '保存'}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={handleTestObsidian}
-            disabled={obsidianTesting}
-          >
-            {obsidianTesting ? '测试中…' : '测试连接'}
-          </button>
-          {knowledgeSink === 'companion' && (
-            <button
-              type="button"
-              className="btn"
-              title="复制本地知识库数据目录路径，粘贴到文件管理器地址栏即可打开"
-              onClick={() => {
-                const isWin = /Windows/i.test(navigator.userAgent);
-                void navigator.clipboard
-                  .writeText(isWin ? '%USERPROFILE%\\vsc-knowledge' : '~/vsc-knowledge')
-                  .then(() =>
-                    setCopyPathFeedback('已复制路径：粘贴到文件管理器地址栏即可打开（Windows 回车 / Mac ⌘+Shift+G 前往）'),
-                  )
-                  .catch(() => setCopyPathFeedback('复制失败，请手动记录：~/vsc-knowledge'));
-              }}
-            >
-              复制数据目录路径
-            </button>
-          )}
-        </div>
-        {knowledgeSink === 'companion' && copyPathFeedback && (
-          <p className="settings-hint">{copyPathFeedback}</p>
-        )}
-        {obsidianFeedback && (
-          <p
-            className={
-              obsidianFeedback.kind === 'ok' ? 'settings-hint' : 'settings-hint settings-error'
-            }
-          >
-            {obsidianFeedback.text}
-          </p>
-        )}
-      </section>
-      )}
       <section className="settings-section">
         <h4>搜索增强（可选）</h4>
         <p className="settings-hint">
