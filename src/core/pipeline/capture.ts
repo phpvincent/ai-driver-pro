@@ -403,7 +403,7 @@ export function buildMocMarkdown(args: {
   const lines = [
     `# MOC · ${args.domain}`,
     '',
-    `本领域共 ${inDomain.length} 条知识（视频笔记 ${inDomain.filter((e) => e.category === 'video-note').length} · 术语 ${inDomain.filter((e) => e.category === 'term').length}）。`,
+    `本领域共 ${inDomain.length} 条知识（笔记 ${inDomain.filter((e) => e.category === 'video-note').length} · 概念 ${inDomain.filter((e) => e.category === 'concept' || e.category === 'term').length} · 问答 ${inDomain.filter((e) => e.category === 'qa').length}）。`,
     '',
     '_本文件由扩展生成；机器检索读 `_meta/index.json`，人类浏览从这里出发。_',
     '',
