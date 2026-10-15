@@ -296,6 +296,18 @@ export const OBSIDIAN = {
   pluginUrl: 'https://github.com/coddingtonbear/obsidian-local-rest-api',
 } as const;
 
+/**
+ * 本地知识库 companion（SPEC-16）：默认知识库通道——用户运行单二进制程序即替代
+ * Obsidian Local REST API 插件（同一套协议）。数据目录 ~/vsc-knowledge 仍是 md 文件，
+ * Obsidian 用户可直接 Open folder as vault 接管。
+ */
+export const COMPANION = {
+  baseUrl: 'http://127.0.0.1:28123',
+  requestTimeoutMs: 8_000,
+  /** companion 二进制下载页（GitHub Releases；设置页引导链接） */
+  downloadUrl: 'https://github.com/phpvincent/ai-driver-pro/releases',
+} as const;
+
 /** 大纲笔记（SPEC-09）：重新归位算法常量（spec §3.3 用户确认值） */
 export const NOTES = {
   /** bullet 锚点重新归位的时间窗口：新要点与 tMs 的偏差 ≤ 15s 才参与文本相似度匹配 */

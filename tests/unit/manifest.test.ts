@@ -34,6 +34,8 @@ describe('manifest.json（TECH-DESIGN §9 可执行快照）', () => {
       'https://*.hdslb.com/*',
       'https://api.deepseek.com/*',
       'http://127.0.0.1:27123/*',
+      // 本地知识库 companion（SPEC-16）
+      'http://127.0.0.1:28123/*',
       'https://maas.qianwenaiapi.com/*',
       // 内置公开资料检索（DuckDuckGo，免 Key）
       'https://api.duckduckgo.com/*',

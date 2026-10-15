@@ -22,7 +22,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { chatCompletion } from '../../core/harness/modelClient';
-import { BOCHA, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
+import { BOCHA, COMPANION, DEFAULT_MODEL, FRAME_PLAN, MODEL_PRESETS, OBSIDIAN, VISION } from '../../config';
 import { ensureHostPermission, originOfBaseUrl } from '../../platform';
 import { MSG } from '../../messages';
 import { testObsidianConnection } from '../obsidianLoader';
@@ -859,7 +859,7 @@ export function SettingsPage({
       </section>
 
       <section className="settings-section">
-        <h4>Obsidian 配置</h4>
+        <h4>知识库同步</h4>
         <label
           className="field"
           style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
@@ -872,13 +872,35 @@ export function SettingsPage({
               setObsidianFeedback(null);
             }}
           />
-          <span>使用 Obsidian 存库（不勾 = 暂时停用：存入将直接下载 .md 到本地，凭据保留不擦除）</span>
+          <span>启用知识库同步（不勾 = 暂时停用：存入将直接下载 .md 到本地，凭据保留不擦除）</span>
         </label>
         <p className="settings-hint">
-          Local REST API（HTTP 模式）地址 / 密钥 / 笔记根目录；笔记落在「根目录/视频笔记/」与「根目录/术语/」
+          两种通道任选其一（同一套协议）：默认推荐「本地知识库服务」——下载运行一个小程序即可，
+          无需安装 Obsidian；笔记是本地 md 文件，落在「根目录/视频笔记/」与「根目录/术语/」
         </p>
         <details className="settings-guide">
-          <summary>没配置过 Obsidian？点开 5 步指引</summary>
+          <summary>推荐：本地知识库服务（3 步，无需 Obsidian）</summary>
+          <ol>
+            <li>
+              <a href={COMPANION.downloadUrl} target="_blank" rel="noreferrer">
+                下载本地知识库服务（GitHub Releases）
+              </a>{' '}
+              → 选你系统的版本（Windows / macOS）→ 双击运行，保持窗口开着
+            </li>
+            <li>
+              窗口里会打印「API Key」→ 复制粘贴到本页「API Key」；「接口地址」保持{' '}
+              <code>{COMPANION.baseUrl}</code> 默认即可
+            </li>
+            <li>
+              「笔记根目录」填一个文件夹名（如 <code>副驾</code>，不存在会自动创建）→
+              点「保存」→「测试连接」。
+              笔记保存在 <code>~/vsc-knowledge/</code>，全是 md 文件；
+              日后想用 Obsidian 的功能，直接把该目录「打开为仓库」即可
+            </li>
+          </ol>
+        </details>
+        <details className="settings-guide">
+          <summary>高级：直连 Obsidian（已装 Obsidian 的用户，5 步）</summary>
           <ol>
             <li>
               下载并安装{' '}
@@ -894,7 +916,7 @@ export function SettingsPage({
             <li>
               在第三方插件列表点 Local REST API 的齿轮进入插件设置：**打开「Enable
               Non-encrypted (HTTP) server」开关**（新版默认只开 HTTPS——自签证书扩展无法信任，
-              必须用 HTTP），端口默认 27123 → 本页「接口地址」保持 <code>{OBSIDIAN.baseUrl}</code> 即可
+              必须用 HTTP），端口默认 27123 → 本页「接口地址」改填 <code>{OBSIDIAN.baseUrl}</code>
             </li>
             <li>
               插件设置页找到「API Key」→ 点复制 → 粘贴到本页「API Key」
@@ -913,7 +935,7 @@ export function SettingsPage({
           <span>接口地址</span>
           <input
             type="text"
-            placeholder={OBSIDIAN.baseUrl}
+            placeholder={COMPANION.baseUrl}
             value={obsidian.baseUrl}
             onChange={updateObsidian('baseUrl')}
           />
@@ -922,7 +944,7 @@ export function SettingsPage({
           <span>API Key</span>
           <input
             type="password"
-            placeholder="粘贴 Local REST API 的 API Key"
+            placeholder="粘贴服务启动时打印的 API Key"
             value={obsidian.apiKey}
             onChange={updateObsidian('apiKey')}
           />
