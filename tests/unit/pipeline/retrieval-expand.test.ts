@@ -9,9 +9,8 @@ import {
   mergeQueryTerms,
   needsQueryExpansion,
   searchIndex,
-  type KnowledgeHit,
 } from '../../../src/core/knowledge/retriever';
-import type { KnowledgeIndexEntry, KnowledgeIndexFile } from '../../../src/types';
+import type { KnowledgeHit, KnowledgeIndexEntry, KnowledgeIndexFile } from '../../../src/types';
 import { expandQueryForRetrieval } from '../../../src/core/pipeline/explain';
 
 const base = {
