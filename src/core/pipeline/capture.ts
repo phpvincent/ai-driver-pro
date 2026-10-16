@@ -457,6 +457,22 @@ export function buildConceptLinksBlock(args: {
 }
 
 /**
+ * 领域标签注入（SPEC-17 关联网）：视频笔记 frontmatter tags 追加嵌套领域标签
+ * （公考_判断推理 → #公考/判断推理）。幂等：已有不重复；无 tags 行则跳过（保守）。
+ * 效果：Obsidian 图谱开「标签」显示后，同领域笔记经标签节点互连（MOC 星形之外的
+ * 第二条领域归群边）；标签面板也可按父域折叠。
+ */
+export function upsertDomainTag(markdown: string, domain: string): string {
+  if (!domain) return markdown;
+  const tag = domain.replace(/_/g, '/');
+  const m = markdown.match(/^tags: \[([^\]]*)\]/m);
+  if (!m) return markdown;
+  if (m[1].split(',').some((t) => t.trim() === tag)) return markdown;
+  const current = m[1].trim();
+  return markdown.replace(/^tags: \[([^\]]*)\]/m, `tags: [${current}${current ? ', ' : ''}${tag}]`);
+}
+
+/**
  * 幂等刷新笔记的 vsc:concepts 区块：已有 → 原位替换；没有 → 追加文末。
  * 区块外内容（含手写）一律不动。
  */

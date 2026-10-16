@@ -366,6 +366,7 @@ describe('lintKnowledgeIndex（SPEC-17 体检）', () => {
 import {
   buildConceptLinksBlock,
   upsertConceptLinksBlock,
+  upsertDomainTag,
 } from '../../../src/core/pipeline/capture';
 
 describe('关联网：笔记「涉及概念」区块与幂等刷新', () => {
@@ -396,5 +397,22 @@ describe('关联网：笔记「涉及概念」区块与幂等刷新', () => {
     expect(next).toContain('- [[捆绑法]]');
     expect(next).not.toContain('- [[排除法]]'); // 旧概念列表被替换（蒸馏结果为准）
     expect(next).toContain('旧手写');
+  });
+});
+
+describe('upsertDomainTag（领域标签注入）', () => {
+  const md = '---\ntitle: x\ntags: [ai, 视频笔记, B站, 定义判断]\n---\n\n# 笔记';
+  it('注入嵌套领域标签（公考_判断推理 → 公考/判断推理）', () => {
+    const out = upsertDomainTag(md, '公考_判断推理');
+    expect(out).toContain('tags: [ai, 视频笔记, B站, 定义判断, 公考/判断推理]');
+  });
+  it('幂等：重复注入不重复追加', () => {
+    const once = upsertDomainTag(md, '公考_判断推理');
+    expect(upsertDomainTag(once, '公考_判断推理')).toBe(once);
+  });
+  it('无 tags 行 → 原样返回（保守跳过）；空领域 → 原样返回', () => {
+    const noTags = '---\ntitle: x\n---\n\n# 笔记';
+    expect(upsertDomainTag(noTags, '公考')).toBe(noTags);
+    expect(upsertDomainTag(md, '')).toBe(md);
   });
 });
