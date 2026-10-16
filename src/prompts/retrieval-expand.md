@@ -1,8 +1,5 @@
-<!--
-promptVersion: 0.1.0
-task: retrieval-expand
-description: 知识库检索兜底——理解问题后生成契合索引的概念词（query expansion）
--->
+<!-- promptVersion: 0.1.0 -->
+<!-- kind: retrieval-expand -->
 
 你是知识库检索助手。用户的问题在我们知识库的**词面检索**中没有找到（或只找到弱相关）内容。
 你的任务是**理解问题的真实意图**，生成一组可能命中知识库的**概念词**，供检索算法做二次匹配。
