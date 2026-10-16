@@ -214,6 +214,45 @@ export function parseDistillResult(content: string): DistillResult {
   return parseJsonWithSchema(content, DistillResultSchema, 'DistillResultSchema');
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-17 · 检索兜底扩展（query expansion）
+// ---------------------------------------------------------------------------
+
+export const ExpandedQuerySchema = z.object({
+  /** 问题相关的概念词（清单内引用原文 + 清单外补充同义词） */
+  concepts: z.array(z.string().min(1)).max(12),
+});
+
+export interface ExpandQueryArgs {
+  /** 用户原始问题 */
+  question: string;
+  /** 知识库概念名清单（预算内才有；null = 纯改写模式） */
+  conceptList: string | null;
+  modelFn: ExplainModelFn;
+  getSystemPrompt?: () => string;
+  onValidationError?: (error: string) => void;
+}
+
+/**
+ * 检索兜底扩展：理解问题 → 生成契合索引的概念词（返回给机械匹配做二次检索）。
+ * 模型失败/校验失败由调用方降级（返回空数组 = 维持零命中现状），本函数 throw 即降级信号。
+ */
+export async function expandQueryForRetrieval(args: ExpandQueryArgs): Promise<string[]> {
+  const systemPrompt = args.getSystemPrompt?.() ?? '';
+  const parts = [`用户问题：${args.question}`];
+  if (args.conceptList) {
+    parts.push('', '知识库概念清单（优先从中选，语义相关即选，逐字引用原文）：', '', args.conceptList);
+  }
+  const userPrompt = `${parts.join('\n')}\n\n请按系统指令输出严格 JSON。`;
+  const parsed = await callModelWithRetry(
+    args.modelFn,
+    { systemPrompt, userPrompt },
+    (content) => parseJsonWithSchema(content, ExpandedQuerySchema, 'ExpandedQuerySchema').concepts,
+    args.onValidationError,
+  );
+  return parsed.filter((t) => t.trim().length > 0);
+}
+
 export interface DistillArgs {
   /** 视频笔记 markdown（章节蒸馏层：## 章节/要点/术语） */
   videoNoteMarkdown: string;

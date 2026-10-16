@@ -437,3 +437,56 @@ export function fixLintIssues(
     orphanPaths: realOrphans,
   };
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-17 · 检索兜底扩展（query expansion）：零命中/低分时 LLM 生成概念词二次匹配
+// ---------------------------------------------------------------------------
+
+/** 扩展参数（渐进式披露预算 + 触发阈值） */
+export const EXPAND = {
+  /** 概念名清单喂给 LLM 的体积预算（字符）；超预算退化为纯改写（不附清单） */
+  listBudgetChars: 1_500,
+  /** 低分命中阈值：最高分 < 此值视为弱命中，触发扩展 */
+  lowScoreThreshold: 0.3,
+  /** LLM 单次最多输出的概念词数（与 prompt 约束一致） */
+  maxTerms: 12,
+} as const;
+
+/**
+ * 构建概念名清单（渐进式披露的"名称层"：只含 概念名 + 领域，无预览——预览层只注入命中条目）。
+ * 超预算返回 null（调用方退化为纯改写）。video-note 不进清单（标题过长且概念经 related 链可达）。
+ */
+export function buildConceptList(entries: ReadonlyArray<KnowledgeIndexEntry>): string | null {
+  const items = entries
+    .filter((e) => e.category === 'concept' || e.category === 'term')
+    .map((e) => `- ${e.title}（${e.domain ?? '通用'}）`);
+  const text = items.join('\n');
+  return text.length > 0 && text.length <= EXPAND.listBudgetChars ? text : null;
+}
+
+/**
+ * 扩展触发矩阵（讨论定稿）：
+ * - 零命中 → 触发（清单在预算内 = 接地选词；超预算 = 纯改写尽力而为）
+ * - 低分命中 → 仅当清单在预算内才触发（纯改写对低分无效，不白花调用）
+ */
+export function needsQueryExpansion(args: {
+  hits: ReadonlyArray<KnowledgeHit>;
+  conceptList: string | null;
+}): boolean {
+  if (args.hits.length === 0) return true;
+  const maxScore = Math.max(...args.hits.map((h) => h.score));
+  return maxScore < EXPAND.lowScoreThreshold && args.conceptList !== null;
+}
+
+/** 合并检索词：原词 + 扩展词去重（上限保护） */
+export function mergeQueryTerms(original: ReadonlyArray<string>, expanded: ReadonlyArray<string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of [...original, ...expanded.slice(0, EXPAND.maxTerms)]) {
+    const key = norm(t);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
