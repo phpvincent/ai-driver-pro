@@ -12,6 +12,7 @@ import segmentQaMd from './segment-qa.md?raw';
 import termExplainerMd from './term-explainer.md?raw';
 import knowledgeCaptureMd from './knowledge-capture.md?raw';
 import distillMd from './distill.md?raw';
+import retrievalExpandMd from './retrieval-expand.md?raw';
 import personaMd from './persona.md?raw';
 import framePlanMd from './frame-plan.md?raw';
 import subtitlePunctuateMd from './subtitle-punctuate.md?raw';
@@ -52,6 +53,7 @@ const TERM_EXPLAINER_HEADER = parsePromptHeader(termExplainerMd);
 const SEGMENT_QA_HEADER = parsePromptHeader(segmentQaMd);
 const KNOWLEDGE_CAPTURE_HEADER = parsePromptHeader(knowledgeCaptureMd);
 const DISTILL_HEADER = parsePromptHeader(distillMd);
+const RETRIEVAL_EXPAND_HEADER = parsePromptHeader(retrievalExpandMd);
 const PERSONA_HEADER = parsePromptHeader(personaMd);
 const FRAME_PLAN_HEADER = parsePromptHeader(framePlanMd);
 const SUBTITLE_PUNCTUATE_HEADER = parsePromptHeader(subtitlePunctuateMd);
@@ -68,6 +70,7 @@ export const PROMPT_VERSIONS = {
   segmentQa: SEGMENT_QA_HEADER.promptVersion,
   knowledgeCapture: KNOWLEDGE_CAPTURE_HEADER.promptVersion,
   distill: DISTILL_HEADER.promptVersion,
+  retrievalExpand: RETRIEVAL_EXPAND_HEADER.promptVersion,
   persona: PERSONA_HEADER.promptVersion,
   framePlan: FRAME_PLAN_HEADER.promptVersion,
   subtitlePunctuate: SUBTITLE_PUNCTUATE_HEADER.promptVersion,
@@ -116,6 +119,11 @@ export function getKnowledgeCaptureSystemPrompt(): string {
 /** 蒸馏 system prompt 正文（SPEC-17：入库蒸馏——领域判定 + 概念抽取） */
 export function getDistillSystemPrompt(): string {
   return stripPromptHeaderComments(distillMd);
+}
+
+/** 检索兜底扩展 system prompt 正文（SPEC-17：零命中/低分时 LLM 生成概念词做二次匹配） */
+export function getRetrievalExpandSystemPrompt(): string {
+  return stripPromptHeaderComments(retrievalExpandMd);
 }
 
 export function getPersonaSystemPrompt(): string {

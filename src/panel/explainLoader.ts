@@ -9,11 +9,18 @@ import { setGenerationSource } from './generationTrace';
 import { VISION } from '../config';
 import { planFrames } from './framesClient';
 import { chatCompletion } from '../core/harness/modelClient';
-import { distillForKnowledge, type DistillResult } from '../core/pipeline/explain';
-import { getDistillSystemPrompt } from '../prompts';
+import {
+  distillForKnowledge,
+  expandQueryForRetrieval,
+  type DistillResult,
+} from '../core/pipeline/explain';
+import { getDistillSystemPrompt, getRetrievalExpandSystemPrompt } from '../prompts';
 import {
   buildKnowledgeContext,
+  buildConceptList,
   extractQueryTerms,
+  mergeQueryTerms,
+  needsQueryExpansion,
   searchIndex,
 } from '../core/knowledge/retriever';
 import {
@@ -30,7 +37,7 @@ import {
   PROMPT_VERSIONS,
 } from '../prompts';
 import { createSubtitleDb, getOutline, getSubtitle, saveQaRecord } from '../storage/db';
-import type { Cue, KnowledgeHit, QaRecord, Section, Settings } from '../types';
+import type { Cue, KnowledgeHit, QaRecord, Section, Settings, ModelConfig } from '../types';
 import type { ExplainRequest, ExplainResponse } from './ChatTab';
 import { getObsidianConfig, readIndex } from './obsidianLoader';
 import { personaInstruction } from '../core/pipeline/persona';
@@ -88,6 +95,12 @@ async function loadKnowledge(args: {
   sections: Section[];
   positionMs: number;
   enabled: boolean;
+  /**
+   * SPEC-17 检索兜底扩展回调（App/explain 注入模型能力，本函数保持纯检索）：
+   * 零命中 / 低分命中（清单在预算内）时，LLM 理解问题生成概念词 → 二次机械匹配。
+   * 失败静默降级为一次命中结果（红线 8 精神）。
+   */
+  expand?: (question: string, conceptList: string | null) => Promise<string[]>;
 }): Promise<{ hits: KnowledgeHit[]; context: string }> {
   if (!args.enabled) return { hits: [], context: '' };
   try {
@@ -100,7 +113,24 @@ async function loadKnowledge(args: {
       sectionTerms: section?.terms,
       positionMs: args.positionMs,
     });
-    const hits = searchIndex({ index, queryTerms });
+    let hits = searchIndex({ index, queryTerms });
+
+    // SPEC-17 兜底扩展（触发矩阵见 needsQueryExpansion）：LLM 生成概念词 → 合并 → 二次匹配
+    if (args.expand) {
+      const conceptList = buildConceptList(index.entries);
+      if (needsQueryExpansion({ hits, conceptList })) {
+        try {
+          const expanded = await args.expand(args.question, conceptList);
+          if (expanded.length > 0) {
+            const second = searchIndex({ index, queryTerms: mergeQueryTerms(queryTerms, expanded) });
+            // 二次命中更多才采用（防扩展词噪音导致结果变差）
+            if (second.length > hits.length) hits = second;
+          }
+        } catch {
+          // 扩展失败（模型不可用/校验失败/超时）→ 维持一次命中，静默降级
+        }
+      }
+    }
     return { hits, context: buildKnowledgeContext(hits) };
   } catch {
     return { hits: [], context: '' };
@@ -365,6 +395,9 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
     sections,
     positionMs: args.positionMs,
     enabled: knowledgeSearch,
+    // SPEC-17 兜底扩展：模型能力注入（loadKnowledge 保持纯检索，不 import providers）
+    expand: (question, conceptList) =>
+      expandRetrievalQuery({ question, conceptList, model }),
   });
 
   // 公开资料检索（SPEC-15：路由判断 → 博查/Wikipedia/DDG 三级瀑布）
@@ -540,6 +573,52 @@ export async function explain(args: ExplainRequest): Promise<ExplainResponse> {
  * 视频笔记入库蒸馏：领域判定 + 概念抽取（走 distill prompt 0.1.0，
  * callModelWithRetry 同既有管线口径）。失败 throw——由存入编排降级。
  */
+/**
+ * 检索兜底扩展入口（SPEC-17）：LLM 理解问题 → 生成契合索引的概念词。
+ * explain() 已解析模型，直接传入（不再读 settings）；失败 throw 由 loadKnowledge 降级。
+ * 校验失败留痕 LLM 日志（retrieval-expand），成功调用不打日志（频率高，噪音优先级低）。
+ */
+export async function expandRetrievalQuery(args: {
+  question: string;
+  conceptList: string | null;
+  model: ModelConfig;
+}): Promise<string[]> {
+  const modelFn: ExplainModelFn = ({ systemPrompt, userPrompt }) =>
+    chatCompletion({
+      baseUrl: args.model.baseUrl,
+      apiKey: args.model.apiKey,
+      model: args.model.model,
+      temperature: args.model.temperature.qa,
+      maxTokens: args.model.maxTokens,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      responseFormatJson: true,
+    });
+  return await expandQueryForRetrieval({
+    question: args.question,
+    conceptList: args.conceptList,
+    modelFn,
+    getSystemPrompt: getRetrievalExpandSystemPrompt,
+    onValidationError: (error) => {
+      emitLlmLog({
+        id: newLogId(),
+        at: new Date().toISOString(),
+        label: 'retrieval-expand',
+        model: args.model.model,
+        endpointHost: hostOfUrl(args.model.baseUrl),
+        ok: false,
+        durationMs: 0,
+        inputChars: args.question.length,
+        outputChars: 0,
+        requestPreview: `检索扩展：${args.question.slice(0, 60)}`,
+        responsePreview: error.slice(0, 200),
+      });
+    },
+  });
+}
+
 export async function distillVideoNote(args: {
   videoNoteMarkdown: string;
   userNotesMarkdown: string;
