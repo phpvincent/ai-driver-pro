@@ -163,6 +163,7 @@ import { parseDistillResult } from '../../../src/core/pipeline/explain';
 describe('概念页（术语表节点）', () => {
   const ref = conceptReferenceBlock({
     videoTitle: '图形推理',
+    noteLink: '图形推理01：排除法入门',
     anchorSec: 303,
     sourceExcerpt: '先横再竖是通用解法',
     sourceType: 'raw',
@@ -184,6 +185,7 @@ describe('概念页（术语表节点）', () => {
     expect(md).toContain('type: concept');
     expect(md).toContain('> [!note] AI 蒸馏 · 待核验');
     expect(md).toContain('[05:03](https://www.bilibili.com/video/BV1xx/?p=1&t=303)');
+    expect(md).toContain('[[图形推理01：排除法入门|图形推理]]'); // 概念→笔记 wikilink（图谱边）
     expect(md).toContain('source: raw');
   });
 
@@ -202,6 +204,7 @@ describe('概念页（术语表节点）', () => {
       domain: '逻辑学',
       reference: conceptReferenceBlock({
         videoTitle: '强化练习',
+        noteLink: '强化练习03：排除法运用',
         anchorSec: 120,
         sourceExcerpt: '我的理解是先排掉明显错的',
         sourceType: 'user-note',
@@ -355,3 +358,43 @@ describe('lintKnowledgeIndex（SPEC-17 体检）', () => {
   });
 });
 
+
+
+// ---------------------------------------------------------------------------
+// SPEC-17 关联网：wikilink 图谱边（涉及概念区块 / 上位概念 / 幂等刷新）
+// ---------------------------------------------------------------------------
+import {
+  buildConceptLinksBlock,
+  upsertConceptLinksBlock,
+} from '../../../src/core/pipeline/capture';
+
+describe('关联网：笔记「涉及概念」区块与幂等刷新', () => {
+  const block = buildConceptLinksBlock({
+    conceptNames: ['排除法', '同构选项'],
+    rawLink: 'BV1xx_p2',
+  });
+  it('区块含概念 wikilink + raw 链接', () => {
+    expect(block).toContain('%% vsc:concepts:start %%');
+    expect(block).toContain('- [[排除法]]');
+    expect(block).toContain('- [[同构选项]]');
+    expect(block).toContain('原文：[[BV1xx_p2|字幕原文（raw）]]');
+    expect(block).toContain('%% vsc:concepts:end %%');
+  });
+  it('无旧区块 → 文末追加；手写内容保留', () => {
+    const md = '# 笔记\n\n手写内容';
+    const out = upsertConceptLinksBlock(md, block);
+    expect(out).toContain('手写内容');
+    expect(out).toContain('- [[排除法]]');
+  });
+  it('已有旧区块 → 原位替换（幂等，不重复追加）', () => {
+    const first = upsertConceptLinksBlock('# 笔记\n\n旧手写', block);
+    const next = upsertConceptLinksBlock(first, buildConceptLinksBlock({
+      conceptNames: ['捆绑法'],
+      rawLink: 'BV1xx_p2',
+    }));
+    expect((next.match(/vsc:concepts:start/g) ?? []).length).toBe(1);
+    expect(next).toContain('- [[捆绑法]]');
+    expect(next).not.toContain('- [[排除法]]'); // 旧概念列表被替换（蒸馏结果为准）
+    expect(next).toContain('旧手写');
+  });
+});

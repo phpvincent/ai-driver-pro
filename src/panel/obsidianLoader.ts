@@ -23,6 +23,7 @@ import {
   conceptNotePath,
   conceptReferenceBlock,
   DEFAULT_DOMAIN,
+  buildConceptLinksBlock,
   emptyIndexFile,
   findDuplicateTerm,
   INDEX_JSON_NAME,
@@ -30,6 +31,7 @@ import {
   joinVaultPath,
   localMarkdownFileName,
   mergeConceptPageMarkdown,
+  upsertConceptLinksBlock,
   mocPath,
   playbackUrl,
   termNotePath,
@@ -288,6 +290,13 @@ export async function saveVideoNoteToObsidian(args: {
     markdown = applyNotesToMarkdown(noteDraft.markdown, args.meta, args.sections, notes);
   }
 
+  // SPEC-17 关联网：刷新笔记的「涉及概念」标记区块（笔记→概念/笔记→raw wikilink），
+  // 幂等：重存只替换 vsc:concepts 区块，手写内容不动
+  const rawLink = `${args.meta.bvid || args.meta.videoId}_p${args.meta.page}`;
+  markdown = upsertConceptLinksBlock(
+    markdown,
+    buildConceptLinksBlock({ conceptNames: concepts.map((c) => c.name), rawLink }),
+  );
   await putNote(cfg, fetchFn, videoNote, markdown);
 
   // ---- SPEC-17：raw 原料层（只写一次；已存在不覆盖——只读语义）----
@@ -301,8 +310,11 @@ export async function saveVideoNoteToObsidian(args: {
 
   // ---- SPEC-17：概念页（追加式合并；aliases 只增不删）----
   for (const concept of concepts) {
+    // 笔记文件名（wikilink 目标——Obsidian 图谱由概念→笔记连线）
+    const noteLink = paths.videoNote.split('/').pop()?.replace(/\.md$/, '') ?? '';
     const ref = conceptReferenceBlock({
       videoTitle: args.meta.title,
+      noteLink,
       anchorSec: concept.anchorSec,
       sourceExcerpt: concept.sourceExcerpt,
       // 原话出现在用户笔记序列化里 → user-note（已核验·加权）；否则 raw 溯源
