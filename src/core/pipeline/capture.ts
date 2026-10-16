@@ -432,6 +432,65 @@ export function buildMocMarkdown(args: {
   return `${lines.join('\n').trim()}\n`;
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-17 关联网 · 笔记侧标记区块（涉及概念 wikilinks + raw 原文链接）
+// ---------------------------------------------------------------------------
+
+export const CONCEPTS_MARKER_START = '%% vsc:concepts:start %%';
+export const CONCEPTS_MARKER_END = '%% vsc:concepts:end %%';
+
+/**
+ * 笔记的「涉及概念」区块（vsc:concepts 标记包裹，与 vsc:notes 同款刷新语义）：
+ * 笔记 → 概念 wikilink（图谱边）+ 笔记 → raw 原文 wikilink（溯源终点入口）。
+ */
+export function buildConceptLinksBlock(args: {
+  conceptNames: ReadonlyArray<string>;
+  rawLink: string;
+}): string {
+  const lines = [CONCEPTS_MARKER_START, '', '## 涉及概念', ''];
+  if (args.conceptNames.length > 0) {
+    for (const c of args.conceptNames) lines.push(`- [[${c}]]`);
+    lines.push('');
+  }
+  lines.push(`原文：[[${args.rawLink}|字幕原文（raw）]]`, '', CONCEPTS_MARKER_END);
+  return lines.join('\n');
+}
+
+/**
+ * 幂等刷新笔记的 vsc:concepts 区块：已有 → 原位替换；没有 → 追加文末。
+ * 区块外内容（含手写）一律不动。
+ */
+export function upsertConceptLinksBlock(markdown: string, block: string): string {
+  const lines = markdown.split('\n');
+  const startIdx = lines.findIndex((l) => l.trim() === CONCEPTS_MARKER_START);
+  if (startIdx === -1) {
+    return `${markdown.trimEnd()}
+
+${block}
+`;
+  }
+  let endIdx = -1;
+  for (let i = startIdx + 1; i < lines.length; i += 1) {
+    if (lines[i].trim() === CONCEPTS_MARKER_END) {
+      endIdx = i;
+      break;
+    }
+  }
+  if (endIdx === -1) {
+    return `${lines.slice(0, startIdx).join('\n').trimEnd()}
+
+${block}
+`;
+  }
+  return `${lines.slice(0, startIdx).join('\n').trimEnd()}
+
+${block}
+
+${lines
+    .slice(endIdx + 1)
+    .join('\n').replace(/^\n+/, '')}`;
+}
+
 /** MOC 落盘路径：索引/MOC-{领域}.md */
 export function mocPath(domain: string): string {
   return joinVaultPath(NOTE_DIR.moc, `MOC-${sanitizeFileName(domain || DEFAULT_DOMAIN)}.md`);
@@ -453,6 +512,8 @@ export function conceptNotePath(preferred: string, rootDir: string): string {
 /** 概念页引用记录块（"以什么身份连"：带原句语境 + 回放锚点 + 来源标注） */
 export function conceptReferenceBlock(args: {
   videoTitle: string;
+  /** 来源笔记文件名（不含 .md）；wikilink 目标——Obsidian 图谱由此连线（概念 → 笔记 边） */
+  noteLink: string;
   anchorSec: number;
   sourceExcerpt: string;
   sourceType: 'raw' | 'user-note';
@@ -461,7 +522,7 @@ export function conceptReferenceBlock(args: {
   const ts = formatClock(args.anchorSec * 1000);
   const link = args.playbackUrl ? `[${ts}](${args.playbackUrl})` : `[${ts}]`;
   return [
-    `### ${args.videoTitle} ${link}`,
+    `### [[${args.noteLink}|${args.videoTitle}]] ${link}`,
     `- source: ${args.sourceType}`,
     `- 概念语境：`,
     '',
@@ -501,6 +562,8 @@ export function buildConceptPageMarkdown(args: {
     '',
     '> [!note] AI 蒸馏 · 待核验',
     `> **定义（划界）**：${args.definition}`,
+    // 上位概念 wikilink（SPEC-17 关联网：概念 → 上位概念 的图谱边）
+    ...(args.broader ? ['', `上位概念：[[${args.broader}]]`] : []),
     '',
     '## 引用记录',
     '',
