@@ -32,6 +32,7 @@ import {
   localMarkdownFileName,
   mergeConceptPageMarkdown,
   upsertConceptLinksBlock,
+  upsertDomainTag,
   mocPath,
   playbackUrl,
   termNotePath,
@@ -293,6 +294,8 @@ export async function saveVideoNoteToObsidian(args: {
   // SPEC-17 关联网：刷新笔记的「涉及概念」标记区块（笔记→概念/笔记→raw wikilink），
   // 幂等：重存只替换 vsc:concepts 区块，手写内容不动
   const rawLink = `${args.meta.bvid || args.meta.videoId}_p${args.meta.page}`;
+  // SPEC-17 关联网：frontmatter 注入嵌套领域标签（同域笔记经标签节点互连；幂等）
+  markdown = upsertDomainTag(markdown, domain);
   markdown = upsertConceptLinksBlock(
     markdown,
     buildConceptLinksBlock({ conceptNames: concepts.map((c) => c.name), rawLink }),
