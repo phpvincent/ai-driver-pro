@@ -163,10 +163,13 @@ function scoreEntry(entry: KnowledgeIndexEntry, queryTerms: string[]): number {
   const entryTermKeys = entry.terms.map(norm);
   let score = 0;
 
-  // 术语命中：归一化交集数 / min(terms, queryTerms)
+  // 术语命中：归一化交集数 / min(terms, queryTerms)。
+  // 匹配口径 = 全等 或 概念名包含在问题片段中（中文无分词，问题常被切成
+  // 含概念名的长片段，如「逆向思维是什么」≠「逆向思维」——全等会漏检，包含才命中）。
   if (entryTermKeys.length > 0) {
-    const qSet = new Set(qKeys);
-    const inter = entryTermKeys.filter((t) => qSet.has(t)).length;
+    const inter = entryTermKeys.filter(
+      (t) => t.length > 0 && qKeys.some((q) => q === t || q.includes(t)),
+    ).length;
     const denom = Math.min(entryTermKeys.length, qKeys.length);
     if (denom > 0) score += SCORE.terms * Math.min(1, inter / denom);
   }

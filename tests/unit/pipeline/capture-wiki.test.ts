@@ -420,3 +420,48 @@ describe('upsertDomainTag（领域标签注入）', () => {
     expect(upsertDomainTag(md, '')).toBe(md);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SPEC-17 检索实测轮：术语包含匹配（中文无分词，问题片段常含概念名）
+// ---------------------------------------------------------------------------
+describe('searchIndex 术语包含匹配（E2E 实测暴露的漏检修复）', () => {
+  const base = {
+    tags: ['ai', '概念'],
+    summaryPreview: '预览',
+    updatedAt: '2026-10-16T00:00:00Z',
+    domain: '公考_判断推理',
+  };
+  const index: KnowledgeIndexFile = {
+    version: 1,
+    entries: [
+      { ...base, path: '概念/逆向思维.md', title: '逆向思维', category: 'concept', terms: ['逆向思维', '反推'] },
+      { ...base, path: '概念/插空法.md', title: '插空法', category: 'concept', terms: ['插空法'] },
+    ],
+  };
+
+  it('长问题片段含概念名 → 命中（修复前全等匹配漏检）', () => {
+    const hits = searchIndex({ index, queryTerms: ['逆向思维是什么'] });
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].entry.title).toBe('逆向思维');
+  });
+
+  it('片段内多概念同时命中（插空/捆绑问句）', () => {
+    const hits = searchIndex({
+      index: {
+        version: 1,
+        entries: [
+          ...index.entries,
+          { ...base, path: '概念/捆绑法.md', title: '捆绑法', category: 'concept', terms: ['捆绑法'] },
+        ],
+      },
+      queryTerms: ['做排列组合题时什么时候用插空法', '什么时候用捆绑法'],
+    });
+    const titles = hits.map((h) => h.entry.title);
+    expect(titles).toContain('插空法');
+    expect(titles).toContain('捆绑法');
+  });
+
+  it('无关问题仍零命中（防误检不回退）', () => {
+    expect(searchIndex({ index, queryTerms: ['今天中午吃什么比较好消化'] })).toHaveLength(0);
+  });
+});
