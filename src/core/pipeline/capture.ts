@@ -464,12 +464,19 @@ export function buildConceptLinksBlock(args: {
  */
 export function upsertDomainTag(markdown: string, domain: string): string {
   if (!domain) return markdown;
-  const tag = domain.replace(/_/g, '/');
+  // 复合领域同时注入子域标签与父域标签（公考_判断推理 → #公考/判断推理 + #公考）：
+  // Obsidian 图谱中嵌套标签各自为独立节点、不按父级合并——父域标签让同域笔记
+  // （公考_判断推理 / 公考_数量关系）经共享的 #公考 节点在图谱中互连。
+  const tagsToAdd = [domain.replace(/_/g, '/')];
+  const parent = domain.split('_')[0];
+  if (parent && parent !== domain) tagsToAdd.push(parent);
   const m = markdown.match(/^tags: \[([^\]]*)\]/m);
   if (!m) return markdown;
-  if (m[1].split(',').some((t) => t.trim() === tag)) return markdown;
+  const existing = m[1].split(',').map((t) => t.trim());
+  const add = tagsToAdd.filter((t) => !existing.includes(t));
+  if (add.length === 0) return markdown;
   const current = m[1].trim();
-  return markdown.replace(/^tags: \[([^\]]*)\]/m, `tags: [${current}${current ? ', ' : ''}${tag}]`);
+  return markdown.replace(/^tags: \[([^\]]*)\]/m, `tags: [${current}${current ? ', ' : ''}${add.join(', ')}]`);
 }
 
 /**

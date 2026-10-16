@@ -402,9 +402,13 @@ describe('关联网：笔记「涉及概念」区块与幂等刷新', () => {
 
 describe('upsertDomainTag（领域标签注入）', () => {
   const md = '---\ntitle: x\ntags: [ai, 视频笔记, B站, 定义判断]\n---\n\n# 笔记';
-  it('注入嵌套领域标签（公考_判断推理 → 公考/判断推理）', () => {
+  it('注入嵌套领域标签 + 父域标签（公考_判断推理 → 公考/判断推理 + 公考）', () => {
     const out = upsertDomainTag(md, '公考_判断推理');
-    expect(out).toContain('tags: [ai, 视频笔记, B站, 定义判断, 公考/判断推理]');
+    expect(out).toContain('tags: [ai, 视频笔记, B站, 定义判断, 公考/判断推理, 公考]');
+  });
+  it('单层领域无父域标签（前端开发 → 只注入自身）', () => {
+    const out = upsertDomainTag(md, '前端开发');
+    expect(out).toContain('tags: [ai, 视频笔记, B站, 定义判断, 前端开发]');
   });
   it('幂等：重复注入不重复追加', () => {
     const once = upsertDomainTag(md, '公考_判断推理');
