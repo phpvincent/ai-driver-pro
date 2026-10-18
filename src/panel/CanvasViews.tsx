@@ -18,6 +18,12 @@ import {
 } from './canvasLoader';
 import { canvasDownloadFileName } from '../core/pipeline/freeCanvas';
 import { downloadTextFile } from '../platform/files';
+import {
+  CANVAS_EXPORT_FORMATS,
+  ensureStandaloneSvg,
+  exportCanvasAsFormat,
+  type CanvasExportFormat,
+} from './canvasExport';
 import { GenerationProgress } from './GenerationProgress';
 
 export const AI_MINDMAP_HINT = '让 AI 按知识逻辑自由梳理整节课（不按时间堆砌，层级由内容决定）';
@@ -48,6 +54,9 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
   const [error, setError] = useState<string | null>(null);
   /** 渲染层错误（mermaid 运行时渲染失败，罕见：parse 已过） */
   const [renderError, setRenderError] = useState<string | null>(null);
+  /** 导出格式（SPEC-17 配套：PNG/JPG/PDF/SVG——SVG 通用性差，多设备打不开） */
+  const [exportFormat, setExportFormat] = useState<CanvasExportFormat>('png');
+  const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => {
     setRec(null);
@@ -121,30 +130,45 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
       )}
       {rec && !busy && (
         <>
+          <select
+            className="btn"
+            aria-label="导出格式"
+            title="PNG/JPG/PDF 通用性最好（微信、手机、Word 都能开）；SVG 为矢量无损"
+            value={exportFormat}
+            onChange={(e) => setExportFormat(e.target.value as CanvasExportFormat)}
+            style={{ padding: '4px 6px' }}
+          >
+            {CANVAS_EXPORT_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className="btn"
-            title="下载为 SVG 图片（可直接插入文档 / 分享）"
+            disabled={exportBusy}
+            title="按所选格式下载当前导图"
             onClick={() => {
-              let svg =
+              const raw =
                 kind === 'mindmap' && markmapSvgRef.current
                   ? new XMLSerializer().serializeToString(markmapSvgRef.current)
                   : mermaidSvg;
-              if (!svg) return;
-              if (kind === 'mindmap') {
-                // 独立文件可打开的兜底：无显式尺寸时按 viewBox（或默认）补 width/height
-                const el = markmapSvgRef.current;
-                if (el && !el.getAttribute('width')) {
-                  const vb = el.getAttribute('viewBox')?.split(/[,\s]+/).map(Number);
-                  const w = vb && vb.length === 4 ? Math.ceil(vb[2]!) : 1200;
-                  const h = vb && vb.length === 4 ? Math.ceil(vb[3]!) : 800;
-                  svg = svg.replace(/<svg\b/, `<svg width="${w}" height="${h}"`);
-                }
-              }
-              downloadTextFile(canvasDownloadFileName(videoTitle, kind, 'svg'), svg, 'image/svg+xml');
+              if (!raw) return;
+              const svg = ensureStandaloneSvg(raw);
+              setExportBusy(true);
+              void exportCanvasAsFormat({
+                svg,
+                format: exportFormat,
+                fileName: canvasDownloadFileName(videoTitle, kind, ''),
+              })
+                .catch((err: unknown) =>
+                  setError(err instanceof Error ? err.message : String(err)),
+                )
+                .finally(() => setExportBusy(false));
             }}
           >
-            下载 SVG
+            {exportBusy ? '导出中…' : '下载图片'}
           </button>
           <button
             type="button"
