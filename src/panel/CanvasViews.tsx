@@ -16,7 +16,7 @@ import {
   subscribeCanvasBusy,
   type CanvasRecord,
 } from './canvasLoader';
-import { canvasDownloadFileName } from '../core/pipeline/freeCanvas';
+import { canvasDownloadFileName, matchNodeAnchorMs } from '../core/pipeline/freeCanvas';
 import { downloadTextFile } from '../platform/files';
 import {
   CANVAS_EXPORT_FORMATS,
@@ -248,8 +248,11 @@ export function CanvasPanel({
         ) : (
           <MermaidCanvas
             code={rec.code}
-            anchors={rec.meta?.anchors}
-            onNodeSeek={(sec) => onRequestSeek?.(sec * 1000)}
+            onNodeClick={(nodeText) => {
+              // SPEC-17：节点文字 ↔ 章节确定性匹配 → 跳播（匹配不上不响应，宁可不跳不错跳）
+              const ms = matchNodeAnchorMs(nodeText, sections);
+              if (ms !== null) onRequestSeek?.(ms);
+            }}
             onRenderError={setRenderError}
             onSvgHtml={setMermaidSvg}
           />
@@ -328,15 +331,13 @@ let mermaidSeq = 0;
 /** Mermaid 流程图 → SVG 画布（滚轮缩放 + 拖拽平移 + 适配按钮） */
 export function MermaidCanvas({
   code,
-  anchors,
-  onNodeSeek,
+  onNodeClick,
   onRenderError,
   onSvgHtml,
 }: {
   code: string;
-  /** 节点 id → 秒（SPEC-17：点击节点跳转播放） */
-  anchors?: Record<string, number>;
-  onNodeSeek?: (sec: number) => void;
+  /** 节点被点击（回调拿到节点文字；锚点匹配由外层做） */
+  onNodeClick?: (nodeText: string) => void;
   onRenderError?: (msg: string | null) => void;
   /** 渲染成功的 svg 字符串（外层下载 SVG 用） */
   onSvgHtml?: (svg: string) => void;
@@ -435,14 +436,12 @@ export function MermaidCanvas({
           dragRef.current = null;
         }}
         onClick={(e) => {
-          // SPEC-17 节点点击跳播：mermaid 节点 g 的 id 形如 flowchart-{id}-{n}；
-          // 未命中锚点 → 不响应
-          if (!onNodeSeek || !anchors) return;
+          // SPEC-17 节点点击跳播：把节点文字交给外层做章节匹配
+          if (!onNodeClick) return;
           const g = (e.target as Element).closest('g.node');
           if (!g) return;
-          const id = (g.id.match(/^flowchart-(.+?)-\d+$/)?.[1] ?? '').trim();
-          const sec = id ? anchors[id] : undefined;
-          if (typeof sec === 'number') onNodeSeek(sec);
+          const text = (g.textContent ?? '').trim();
+          if (text) onNodeClick(text);
         }}
       >
         <div

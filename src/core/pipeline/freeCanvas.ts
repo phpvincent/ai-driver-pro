@@ -36,9 +36,7 @@ export type CanvasValidateFn = (code: string) => Promise<void>;
 // ---------------------------------------------------------------------------
 
 /**
- * 作图素材（纯函数）：视频标题 + 按讲解顺序的章节（标题/时间范围/摘要/要点/术语）。
- * 时间范围（2026-10-18 用户需求）供流程图模型输出 anchorSec——点击节点跳转视频。
- * 结构组织仍完全交给模型（不按时刻堆砌），时间只是可选锚点参考。
+ * 作图素材（纯函数）：视频标题 + 按讲解顺序的章节（标题/摘要/要点/术语），不带时间戳。
  */
 export function buildCanvasUserPrompt(sections: readonly Section[], videoTitle: string): string {
   const body = sections
@@ -50,7 +48,7 @@ export function buildCanvasUserPrompt(sections: readonly Section[], videoTitle: 
         .join('\n');
       const terms = (s.terms ?? []).filter((t) => t.trim().length > 0).join('、');
       return [
-        `第 ${i + 1} 章：${s.title}（${mmss(s.startMs)}–${mmss(s.endMs)}）`,
+        `第 ${i + 1} 章：${s.title}`,
         s.summary ? `摘要：${s.summary}` : '',
         bullets ? `要点：\n${bullets}` : '',
         terms ? `术语：${terms}` : '',
@@ -137,142 +135,134 @@ export const MindmapMarkdownSchema = z
   .refine((s) => /^#\s+\S/m.test(s), '缺少一级标题（根节点）')
   .refine((s) => /^(##\s+\S|\s*[-*]\s+\S)/m.test(s), '缺少分支节点（## 标题或列表项）');
 
-/**
- * 流程图（SPEC-17 配套，2026-10-18 用户需求）：JSON 中间格式——
- * AI 决定结构/文字/角色/锚点，代码确定性渲染成 Mermaid（形状 + 配色 + 关系边标签），
- * 并把 anchorSec 映射为"点击节点跳转视频"。取代 v1 的"直接输出 Mermaid"（无锚点、
- * 边标签缺失、无配色——用户实测反馈的三个问题）。
- */
-export const FlowNodeRoleSchema = z.enum(['start', 'step', 'decision', 'output', 'end']);
+/** 流程图：Mermaid flowchart/graph 开头 + 至少一条连线 */
+export const MermaidFlowSchema = z
+  .string()
+  .min(10, '流程图代码过短')
+  .refine((s) => /^\s*(flowchart|graph)\s+(TB|TD|BT|RL|LR)\b/i.test(s), '必须以 flowchart TD/LR 等方向声明开头')
+  .refine((s) => /-->|---|==>|-\.->/.test(s), '没有任何连线');
 
-export const CanvasFlowSpecSchema = z
-  .object({
-    direction: z.enum(['TD', 'LR', 'TB', 'BT', 'RL']).default('TD'),
-    nodes: z
-      .array(
-        z.object({
-          id: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/, '节点 id 只能用英文字母/数字'),
-          text: z.string().min(2, '节点文字过短').max(120, '节点文字过长（≤120 字）'),
-          role: FlowNodeRoleSchema.default('step'),
-          anchorSec: z.number().nonnegative().optional(),
-        }),
-      )
-      .min(2, '至少 2 个节点')
-      .max(30, '节点过多（≤30）'),
-    edges: z
-      .array(
-        z.object({
-          from: z.string().min(1),
-          to: z.string().min(1),
-          label: z.string().max(40).optional(),
-        }),
-      )
-      .min(1, '至少一条连线')
-      .max(45, '连线过多（≤45）'),
-  })
-  .superRefine((spec, ctx) => {
-    const ids = new Set(spec.nodes.map((n) => n.id));
-    spec.nodes.forEach((n, i) => {
-      if (!ids.has(n.id)) return;
-      if (spec.nodes.findIndex((o) => o.id === n.id) !== i) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nodes', i, 'id'], message: `节点 id 重复：${n.id}` });
-      }
-    });
-    spec.edges.forEach((e, i) => {
-      if (!ids.has(e.from)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['edges', i, 'from'], message: `边的起点 ${e.from} 不在节点清单中` });
-      }
-      if (!ids.has(e.to)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['edges', i, 'to'], message: `边的终点 ${e.to} 不在节点清单中` });
-      }
-    });
-  });
-
-export type CanvasFlowSpec = z.infer<typeof CanvasFlowSpecSchema>;
-
-/** 从模型输出提取 JSON（容忍 ```json 围栏与前后废话） */
-export function extractFlowSpecJson(content: string): unknown {
-  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1];
-  const raw = (fenced ?? content).trim();
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('输出中没有 JSON 对象——请只输出一个 JSON');
-  return JSON.parse(raw.slice(start, end + 1));
-}
-
-/** 毫秒 → mm:ss（章节时间范围标注用） */
-export function mmss(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-}
-
-/** Mermaid 文本转义：双引号 → #quot;；换行 → <br/>（两种 label 模式都安全） */
-function escMermaidText(text: string): string {
-  return text.trim().replace(/"/g, '#quot;').replace(/\r?\n/g, '<br/>');
-}
-
-/** 角色 → 形状包裹（start/end 胶囊、decision 菱形、output 圆柱、step 方框） */
-function shapeOf(role: z.infer<typeof FlowNodeRoleSchema>, text: string): string {
-  switch (role) {
-    case 'start':
-    case 'end':
-      return `(["${text}"])`;
-    case 'decision':
-      return `{"${text}"}`;
-    case 'output':
-      return `[("${text}")]`;
-    default:
-      return `["${text}"]`;
+/** Mermaid 连线语句提取（from/to 对；含边标签语法） */
+function extractMermaidEdges(code: string): Array<{ from: string; to: string }> {
+  const out: Array<{ from: string; to: string }> = [];
+  const re = /\b([A-Za-z][A-Za-z0-9_]*)\s*(?:-->|---|==>|-\.->)\s*(?:\|[^|]*\|\s*)?([A-Za-z][A-Za-z0-9_]*)/g;
+  for (const m of code.matchAll(re)) {
+    out.push({ from: m[1], to: m[2] });
   }
+  return out;
 }
-
-/** 角色 → 配色（classDef；step 用主题默认色不单独定义） */
-const ROLE_CLASSDEF: Record<z.infer<typeof FlowNodeRoleSchema>, string | null> = {
-  start: 'fill:#e7f5e8,stroke:#2b8a3e,stroke-width:1.5px',
-  step: null,
-  decision: 'fill:#fff4e0,stroke:#ba7517,stroke-width:1.5px',
-  output: 'fill:#e1f5ee,stroke:#0f6e56,stroke-width:1.5px',
-  end: 'fill:#ecebfe,stroke:#534ab7,stroke-width:1.5px',
-};
 
 /**
- * 流程图 spec → Mermaid 代码（确定性渲染）：
- * 形状按 role、配色按 role（classDef）、边带关系标签、text 换行转 <br/>。
+ * 分支断言（2026-10-19 用户反馈：纯直线链不可接受）：
+ * 必须存在至少一个分支点（某节点出度 ≥2 或入度 ≥2）——判断/分流/汇合/循环都满足。
  */
-export function flowSpecToMermaid(spec: CanvasFlowSpec): string {
-  const lines: string[] = [`flowchart ${spec.direction}`];
-  for (const n of spec.nodes) {
-    lines.push(`    ${n.id}${shapeOf(n.role, escMermaidText(n.text))}`);
+export function assertHasBranching(code: string): void {
+  const outDeg = new Map<string, number>();
+  const inDeg = new Map<string, number>();
+  const edges = extractMermaidEdges(code);
+  for (const e of edges) {
+    outDeg.set(e.from, (outDeg.get(e.from) ?? 0) + 1);
+    inDeg.set(e.to, (inDeg.get(e.to) ?? 0) + 1);
   }
-  for (const e of spec.edges) {
-    lines.push(
-      e.label
-        ? `    ${e.from} -->|${escMermaidText(e.label)}| ${e.to}`
-        : `    ${e.from} --> ${e.to}`,
+  // 分支点 = 出度 ≥2（分流）或入度 ≥2（汇合）；链中间节点总度数=2 不算
+  let hasFan =
+    [...outDeg.values()].some((d) => d >= 2) || [...inDeg.values()].some((d) => d >= 2);
+  if (!hasFan) {
+    // 回边检测：纯环形（C-->A 指回更早出现的节点）也是合法的非直线结构
+    const order = new Map<string, number>();
+    for (const m of code.matchAll(/\b([A-Za-z][A-Za-z0-9_]*)\b/g)) {
+      if (!order.has(m[1])) order.set(m[1], order.size);
+    }
+    hasFan = edges.some((e) => {
+      const toOrder = order.get(e.to);
+      const fromOrder = order.get(e.from);
+      return toOrder !== undefined && fromOrder !== undefined && toOrder < fromOrder;
+    });
+  }
+  if (!hasFan) {
+    throw new Error(
+      '流程图是纯直线链（没有任何分支/汇合/循环）——请按视频知识的真实逻辑加入判断、分支或循环，不要把知识点排成一条线',
     );
   }
-  const byRole = new Map<z.infer<typeof FlowNodeRoleSchema>, string[]>();
-  for (const n of spec.nodes) {
-    if (ROLE_CLASSDEF[n.role]) {
-      byRole.set(n.role, [...(byRole.get(n.role) ?? []), n.id]);
-    }
-  }
-  for (const [role, ids] of byRole) {
-    lines.push(`    classDef role${role} ${ROLE_CLASSDEF[role]}`);
-    lines.push(`    class ${ids.join(',')} role${role}`);
-  }
-  return lines.join('\n');
 }
 
-/** spec → 节点锚点表（id → 秒；点击节点跳视频用） */
-export function flowAnchorsOf(spec: CanvasFlowSpec): Record<string, number> {
-  const anchors: Record<string, number> = {};
-  for (const n of spec.nodes) {
-    if (typeof n.anchorSec === 'number' && Number.isFinite(n.anchorSec)) {
-      anchors[n.id] = Math.floor(n.anchorSec);
+/**
+ * 形状 → 配色确定性注入（对模型输出零负担）：扫描节点形状语法收集 id，
+ * 文末追加 classDef + class。幂等——已注入过（含 mm classDef）直接原样返回。
+ * 纯 SVG 配色（htmlLabels:false 下 classDef 照常生效）。
+ */
+export function enhanceFlowchartColors(code: string): string {
+  if (/classDef\s+mm/.test(code)) return code; // 幂等
+  // 先剥掉引号内的节点文字（防止文字里的 { 等字符干扰形状识别），再扫形状
+  const stripped = code.replace(/"[^"\n]*"/g, '""');
+  const byShape: Array<{ re: RegExp; className: string; def: string }> = [
+    {
+      re: /\b([A-Za-z][A-Za-z0-9_]*)\{/g, // 菱形：判断
+      className: 'mmDecision',
+      def: 'fill:#fff4e0,stroke:#ba7517,stroke-width:1.5px',
+    },
+    {
+      re: /\b([A-Za-z][A-Za-z0-9_]*)\(\[/g, // 胶囊：起止/结论
+      className: 'mmCapsule',
+      def: 'fill:#e7f5e8,stroke:#2b8a3e,stroke-width:1.5px',
+    },
+    {
+      re: /\b([A-Za-z][A-Za-z0-9_]*)\[\(/g, // 圆柱：数据/产物
+      className: 'mmData',
+      def: 'fill:#e1f5ee,stroke:#0f6e56,stroke-width:1.5px',
+    },
+  ];
+  const lines: string[] = [];
+  for (const { re, className, def } of byShape) {
+    const ids = new Set<string>();
+    for (const m of stripped.matchAll(re)) {
+      if (m[1]) ids.add(m[1]);
+    }
+    if (ids.size > 0) {
+      lines.push(`    classDef ${className} ${def}`);
+      lines.push(`    class ${[...ids].join(',')} ${className}`);
     }
   }
-  return anchors;
+  return lines.length > 0 ? `${code.trimEnd()}\n\n${lines.join('\n')}\n` : code;
+}
+
+/**
+ * 节点文字 → 章节锚点（点击节点跳播）：确定性文字匹配——
+ * 章节标题整体包含 > 2-gram 重叠 + 术语命中 > 摘要 2-gram 重叠，加权取最高分。
+ * 低于阈值返回 null（匹配不上就不响应点击，宁可不跳也不错跳）。
+ */
+export function matchNodeAnchorMs(
+  nodeText: string,
+  sections: readonly Section[],
+): number | null {
+  const norm = (v: string): string => v.replace(/\s+/g, '').toLowerCase();
+  const grams = (v: string): Set<string> => {
+    const t = norm(v);
+    const g = new Set<string>();
+    for (let i = 0; i + 2 <= t.length; i += 1) g.add(t.slice(i, i + 2));
+    return g;
+  };
+  const overlap = (a: Set<string>, b: Set<string>): number => {
+    let n = 0;
+    for (const x of a) if (b.has(x)) n += 1;
+    return n;
+  };
+  const text = norm(nodeText);
+  if (text.length === 0) return null;
+  let best: { ms: number; score: number } | null = null;
+  for (const s of sections) {
+    let score = 0;
+    const title = norm(s.title);
+    if (title.length > 0 && text.includes(title)) score += 6;
+    else score += Math.min(4, overlap(grams(text), grams(title)));
+    for (const term of s.terms ?? []) {
+      const t = norm(term);
+      if (t.length >= 2 && text.includes(t)) score += 2;
+    }
+    if (s.summary) score += Math.min(3, overlap(grams(text), grams(s.summary)));
+    if (score > (best?.score ?? 0)) best = { ms: s.startMs, score };
+  }
+  return best && best.score >= 3 ? best.ms : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,26 +283,20 @@ export interface GenerateCanvasArgs {
   onRetry?: (reason: string) => void;
 }
 
-/** 生成结果：code = 渲染用产物（导图 Markdown / 流程图 Mermaid）；meta = 附加数据（锚点表） */
-export interface CanvasGeneration {
-  code: string;
-  meta?: { anchors?: Record<string, number> };
-}
-
 /** 单次结果清洗 + 校验；失败 throw（消息回灌给模型） */
-async function cleanAndCheck(content: string, args: GenerateCanvasArgs): Promise<CanvasGeneration> {
+async function cleanAndCheck(content: string, args: GenerateCanvasArgs): Promise<string> {
   if (args.kind === 'mindmap') {
     const md = normalizeMindmapMarkdown(extractFenced(content, ['markdown', 'md']), args.videoTitle);
     const parsed = MindmapMarkdownSchema.safeParse(md);
     if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join('；'));
-    return { code: parsed.data };
+    return parsed.data;
   }
-  // 流程图：JSON 中间格式 → 校验 → 确定性渲染为 Mermaid（形状/配色/边标签）→ 渲染器级校验
-  const spec = CanvasFlowSpecSchema.parse(extractFlowSpecJson(content));
-  const mermaid = flowSpecToMermaid(spec);
-  if (args.validate) await args.validate(mermaid);
-  const anchors = flowAnchorsOf(spec);
-  return { code: mermaid, meta: Object.keys(anchors).length > 0 ? { anchors } : undefined };
+  const code = normalizeMermaidCode(extractFenced(content, ['mermaid']));
+  const parsed = MermaidFlowSchema.safeParse(code);
+  if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join('；'));
+  assertHasBranching(parsed.data); // 纯直线链打回重生成（用户红线）
+  if (args.validate) await args.validate(parsed.data);
+  return enhanceFlowchartColors(parsed.data); // 形状→配色确定性注入（代码做，不依赖模型）
 }
 
 /**
@@ -320,17 +304,17 @@ async function cleanAndCheck(content: string, args: GenerateCanvasArgs): Promise
  * 第一次失败时把具体错误（Zod 原因 / Mermaid 解析报错）附在 user prompt 后重试；
  * 仍失败则 throw 可读错误，由 UI 呈现并提供重试按钮。
  */
-export async function generateCanvas(args: GenerateCanvasArgs): Promise<CanvasGeneration> {
+export async function generateCanvas(args: GenerateCanvasArgs): Promise<string> {
   const first = await args.modelFn({ systemPrompt: args.systemPrompt, userPrompt: args.userPrompt, images: args.images });
   try {
     return await cleanAndCheck(first.content, args);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     args.onRetry?.(reason);
-    const what = args.kind === 'mindmap' ? 'Markdown 思维导图' : 'JSON 流程图结构';
+    const what = args.kind === 'mindmap' ? 'Markdown 思维导图' : 'Mermaid 流程图代码';
     const retryPrompt =
       `${args.userPrompt}\n\n【上次输出未通过校验】${truncate(reason, 300)}\n` +
-      `请修正后重新输出完整的${what}，${args.kind === 'mindmap' ? '只输出一个代码块，不要解释' : '只输出一个 JSON 对象，不要解释'}。`;
+      `请修正后重新输出完整的${what}，只输出一个代码块，不要解释。`;
     const second = await args.modelFn({ systemPrompt: args.systemPrompt, userPrompt: retryPrompt, images: args.images });
     try {
       return await cleanAndCheck(second.content, args);

@@ -37,8 +37,6 @@ export interface CanvasRecord {
   /** mindmap = 层级 Markdown；flowchart = Mermaid 代码 */
   code: string;
   generatedAt: string;
-  /** SPEC-17：流程图节点锚点表（id → 秒，点击节点跳视频）；导图无 */
-  meta?: { anchors?: Record<string, number> };
 }
 
 function promptVersionOf(kind: CanvasKind): string {
@@ -171,7 +169,7 @@ export async function generateCanvasFor(
   }
   const systemPrompt = kind === 'mindmap' ? getCanvasMindmapSystemPrompt() : getCanvasFlowchartSystemPrompt();
 
-  const { code, meta } = await generateCanvas({
+  const code = await generateCanvas({
     kind,
     systemPrompt,
     userPrompt: buildCanvasUserPrompt(sections, videoTitle),
@@ -210,7 +208,6 @@ export async function generateCanvasFor(
     model: model.model,
     code,
     generatedAt: new Date().toISOString(),
-    meta,
   };
   try {
     await db.open();
