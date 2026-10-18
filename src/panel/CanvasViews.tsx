@@ -379,10 +379,7 @@ export function MermaidCanvas({
         setScale(1);
         setOffset({ x: 0, y: 0 });
         onRenderError?.(null);
-        // 存活 SVG 元素挂到外层（导出自包含化用；等 DOM 注入后下一帧取）
-        requestAnimationFrame(() => {
-          if (svgElRef) svgElRef.current = hostRef.current?.querySelector('svg') ?? null;
-        });
+        // 存活 SVG 元素挂到外层（导出自包含化用；由下方 useEffect 同步兜底）
       }
     })().catch((err: unknown) => {
       if (!cancelled) onRenderError?.(err instanceof Error ? err.message : String(err));
@@ -392,6 +389,12 @@ export function MermaidCanvas({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
+
+  // 渲染产物注入 DOM 后同步挂 ref（导出用；比 rAF 可靠，避免点下载时还没取到）
+  useEffect(() => {
+    if (!svgElRef) return;
+    svgElRef.current = hostRef.current?.querySelector('svg') ?? null;
+  }, [svg, svgElRef]);
 
   // 滚轮缩放必须用原生非 passive 监听：React 的 onWheel 是 passive 的，
   // 里面调 preventDefault 会报 "Unable to preventDefault inside passive event listener"

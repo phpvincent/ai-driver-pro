@@ -195,20 +195,33 @@ export function jpegBytesToPdf(jpeg: Uint8Array, pxWidth: number, pxHeight: numb
  * 解码所有非 XML 五实体为真实字符（\u00A0 等在 XML 文本节点中合法）。
  */
 export function xmlSafeSvg(svg: string): string {
+  let out = svg;
+  // ① XML 非法控制字符（模型输出偶尔夹带；直接剔除）
+  out = out.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  // ② 命名实体解码（&nbsp; 等 HTML 实体在 XML 中非法 → 解成真实字符）
   const decode = document.createElement('textarea');
-  return svg.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, (ent) => {
+  out = out.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, (ent) => {
     if (/^&(amp|lt|gt|quot|apos);$/.test(ent)) return ent; // XML 五实体合法
     decode.innerHTML = ent;
     return decode.value;
   });
+  // ③ 裸 &（如「清洗&烘干」）→ &amp;
+  out = out.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
+  // ④ 未闭合的 HTML 空元素（<br> / <img ...>）→ 自闭合
+  out = out.replace(/<br\s*>/g, '<br/>');
+  out = out.replace(/<(img|hr|input|meta|link)\b([^>]*[^/])>/g, '<$1$2/>');
+  return out;
 }
 
 /** SVG 拒载原因诊断（自动检查，不猜）：XML 合法性 / foreignObject 存在性 */
 function diagnoseSvgFailure(svg: string): string {
   try {
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
-    if (doc.querySelector('parsererror')) {
-      return 'SVG 内容不是合法 XML（节点文字含未转义的特殊字符）';
+    const err = doc.querySelector('parsererror');
+    if (err) {
+      // 浏览器给出的真实原因（含行号/列号/具体原因）——贴进文案，便于精确定位
+      const raw = (err.textContent ?? '').replace(/\s+/g, ' ').trim();
+      return `SVG 不是合法 XML：${raw.slice(0, 180)}`;
     }
   } catch {
     /* DOMParser 不可用（极旧环境）→ 沿用通用文案 */
