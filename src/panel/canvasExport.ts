@@ -39,18 +39,20 @@ export function ensureStandaloneSvg(svg: string): string {
   const nums = vb ? vb.split(/[,\s]+/).map(Number) : [];
   const w = !wOk && nums.length === 4 && nums[2] > 0 ? Math.ceil(nums[2]) : 1200;
   const h = !hOk && nums.length === 4 && nums[3] > 0 ? Math.ceil(nums[3]) : 800;
-  let open = out.match(/<svg\b[^>]*>/)?.[0] ?? '';
-  if (!wOk) {
-    open = wMatch
-      ? open.replace(wMatch[0], `${wMatch[1]} width="${w}"`) // 只换属性，保留 <svg id=... 前缀
-      : open.replace(/<svg\b/, `<svg width="${w}"`);
-  }
-  if (!hOk) {
-    open = hMatch
-      ? open.replace(hMatch[0], `${hMatch[1]} height="${h}"`)
-      : open.replace(/<svg\b/, `<svg height="${h}"`);
-  }
-  out = out.replace(/<svg\b[^>]*>/, open);
+  return rewriteSvgSize(out, w, h);
+}
+
+/** 重写 SVG 的 width/height 为指定像素（缺失则补；保留其余属性） */
+export function rewriteSvgSize(svg: string, w: number, h: number): string {
+  let out = svg;
+  const wMatch = out.match(/(<svg\b[^>]*?)\s(width)="([^"]*)"/);
+  const hMatch = out.match(/(<svg\b[^>]*?)\s(height)="([^"]*)"/);
+  out = wMatch
+    ? out.replace(wMatch[0], `${wMatch[1]} width="${w}"`)
+    : out.replace(/<svg\b/, `<svg width="${w}"`);
+  out = hMatch
+    ? out.replace(hMatch[0], `${hMatch[1]} height="${h}"`)
+    : out.replace(/<svg\b/, `<svg height="${h}"`);
   return out;
 }
 
@@ -79,14 +81,20 @@ export async function svgToRaster(
 ): Promise<{ blob: Blob; width: number; height: number }> {
   const scale = opts.scale ?? 2;
   const { width, height } = svgIntrinsicSize(svg);
+  // 目标像素 = 自然尺寸 × scale，且保底 2000px 宽（侧边栏小容器导出依然可用）
+  const targetW = Math.max(2000, Math.round(width * scale));
+  const targetH = Math.max(1, Math.round((targetW * height) / width));
+  // 关键：把目标分辨率**烘焙进 SVG 声明尺寸**——foreignObject 里的 HTML 文字
+  // 是按 SVG 声明尺寸栅格化的，canvas 再放大只会让文字变糊。1:1 绘制才锐利。
+  const sizedSvg = rewriteSvgSize(svg, targetW, targetH);
   // 编码阶梯（2026-10-19 用户实测 percent 编码在部分 SVG 上拒载）：
   // ① percent-encoded data URL（同源安全，不 taint canvas——html-to-image 同路径）
   // ② base64 data URL（规避 percent 编码对特殊字符的兼容坑）
   // ③ blob: URL（最后手段——foreignObject 场景可能 taint，到 toBlob 才会暴露）
   const candidates: Array<() => string> = [
-    () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
-    () => `data:image/svg+xml;base64,${svgToBase64(svg)}`,
-    () => URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })),
+    () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sizedSvg)}`,
+    () => `data:image/svg+xml;base64,${svgToBase64(sizedSvg)}`,
+    () => URL.createObjectURL(new Blob([sizedSvg], { type: 'image/svg+xml;charset=utf-8' })),
   ];
   let img: HTMLImageElement | null = null;
   let lastError = '所有编码方式均加载失败';
@@ -101,7 +109,7 @@ export async function svgToRaster(
       });
       break;
     } catch {
-      lastError = '浏览器无法把当前导图渲染为位图（所有编码方式均拒载）';
+      lastError = diagnoseSvgFailure(sizedSvg);
     } finally {
       if (src.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(src), 5_000);
     }
@@ -113,15 +121,17 @@ export async function svgToRaster(
       );
     }
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(img.naturalWidth * scale) || width * scale;
-    canvas.height = Math.round(img.naturalHeight * scale) || height * scale;
+    canvas.width = targetW;
+    canvas.height = targetH;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('当前环境不支持画布导出（未取到 2D 上下文）');
     if (opts.background) {
       ctx.fillStyle = opts.background;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, targetW, targetH); // 1:1：文字已在目标分辨率排版
+    const canvasW = targetW;
+    const canvasH = targetH;
     const blob = await new Promise<Blob | null>((resolve, reject) => {
       try {
         canvas.toBlob(resolve, opts.type, opts.quality ?? 0.92);
@@ -135,7 +145,7 @@ export async function svgToRaster(
       }
     });
     if (!blob) throw new Error('位图编码失败（画布尺寸可能超出浏览器上限），请改用 SVG 格式');
-    return { blob, width: canvas.width, height: canvas.height };
+    return { blob, width: canvasW, height: canvasH };
   }
 }
 
@@ -182,6 +192,22 @@ export function jpegBytesToPdf(jpeg: Uint8Array, pxWidth: number, pxHeight: numb
   push(xref);
   push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
   return new Blob(parts as BlobPart[], { type: 'application/pdf' });
+}
+
+/** SVG 拒载原因诊断（自动检查，不猜）：XML 合法性 / foreignObject 存在性 */
+function diagnoseSvgFailure(svg: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) {
+      return 'SVG 内容不是合法 XML（节点文字含未转义的特殊字符）';
+    }
+  } catch {
+    /* DOMParser 不可用（极旧环境）→ 沿用通用文案 */
+  }
+  if (svg.includes('<foreignObject')) {
+    return '导图含富文本节点（foreignObject），当前浏览器拒绝将其栅格化';
+  }
+  return '浏览器无法把当前导图渲染为位图（所有编码方式均拒载）';
 }
 
 /** SVG 字符串 → base64（分块处理，防大字符串 String.fromCharCode(...arr) 溢出） */
@@ -248,24 +274,39 @@ export function downloadBlobFile(filename: string, blob: Blob): void {
   setTimeout(() => URL.revokeObjectURL(url), 5_000);
 }
 
-/** 按格式导出（SVG 源串须已经过 ensureStandaloneSvg） */
+/**
+ * 按格式导出。svgEl = 渲染画布里的**存活 SVG 元素**（推荐）：走自包含化
+ * （foreignObject 内联计算样式——Chromium SVG-as-image 硬要求）；无元素时用
+ * svg 字符串兜底。PNG 默认白底（思维导图深色文字在透明底上看不清）。
+ */
 export async function exportCanvasAsFormat(args: {
-  svg: string;
+  /** 渲染画布中的存活 SVG 元素（markmap / mermaid 均可） */
+  svgEl?: SVGSVGElement | null;
+  /** 兜底 SVG 字符串（无存活元素时） */
+  svg?: string;
   format: CanvasExportFormat;
   fileName: string;
+  /** 超采样倍率（默认 2；小容器导图建议 3） */
+  scale?: number;
 }): Promise<void> {
-  const { svg, format, fileName } = args;
+  const { format, fileName, scale } = args;
+  const raw = args.svgEl ? inlineSvgStyles(args.svgEl) : ensureStandaloneSvg(args.svg ?? '');
+  const svg = ensureStandaloneSvg(raw);
   if (format === 'svg') {
     downloadBlobFile(`${fileName}.svg`, new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     return;
   }
   if (format === 'png') {
-    const { blob } = await svgToRaster(svg, { type: 'image/png' });
+    const { blob } = await svgToRaster(svg, { type: 'image/png', background: '#ffffff', scale });
     downloadBlobFile(`${fileName}.png`, blob);
     return;
   }
   // JPG / PDF：白底栅格化（导图透明背景直接压 JPG 会黑底）
-  const raster = await svgToRaster(svg, { type: 'image/jpeg', background: '#ffffff' });
+  const raster = await svgToRaster(svg, {
+    type: 'image/jpeg',
+    background: '#ffffff',
+    scale,
+  });
   if (format === 'jpg') {
     downloadBlobFile(`${fileName}.jpg`, raster.blob);
     return;

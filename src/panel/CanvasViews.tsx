@@ -20,9 +20,7 @@ import { canvasDownloadFileName, matchNodeAnchorMs } from '../core/pipeline/free
 import { downloadTextFile } from '../platform/files';
 import {
   CANVAS_EXPORT_FORMATS,
-  ensureStandaloneSvg,
   exportCanvasAsFormat,
-  inlineSvgStyles,
   type CanvasExportFormat,
 } from './canvasExport';
 import { GenerationProgress } from './GenerationProgress';
@@ -59,8 +57,9 @@ export function CanvasPanel({
     setCanvasBusyState(isCanvasBusy());
     return subscribeCanvasBusy(() => setCanvasBusyState(isCanvasBusy()));
   }, []);
-  /** 已渲染的 SVG（下载用）：思维导图=svg 元素引用，流程图=svg 字符串 */
+  /** 已渲染的 SVG（下载用）：两种画布都保留**存活元素**（自包含化导出） */
   const markmapSvgRef = useRef<SVGSVGElement | null>(null);
+  const mermaidSvgElRef = useRef<SVGSVGElement | null>(null);
   const [mermaidSvg, setMermaidSvg] = useState('');
   const [error, setError] = useState<string | null>(null);
   /** 渲染层错误（mermaid 运行时渲染失败，罕见：parse 已过） */
@@ -177,17 +176,17 @@ export function CanvasPanel({
                     style={{ justifyContent: 'flex-start', border: 'none', textAlign: 'left' }}
                     onClick={() => {
                       setMenuOpen(false);
-                      const raw =
-                        kind === 'mindmap' && markmapSvgRef.current
-                          ? inlineSvgStyles(markmapSvgRef.current) // foreignObject 内联计算样式 → 自包含
-                          : mermaidSvg;
-                      if (!raw) return;
-                      const svg = ensureStandaloneSvg(raw);
+                      const svgEl =
+                        kind === 'mindmap' ? markmapSvgRef.current : mermaidSvgElRef.current;
+                      if (!svgEl && !mermaidSvg) return;
                       setExportBusy(true);
                       void exportCanvasAsFormat({
-                        svg,
+                        svgEl,
+                        svg: mermaidSvg,
                         format: f.value,
                         fileName: canvasDownloadFileName(videoTitle, kind, ''),
+                        // 思维导图在小侧边栏里 fit，基数小 → 3 倍超采样保清晰
+                        scale: kind === 'mindmap' ? 3 : 2,
                       })
                         .catch((err: unknown) =>
                           setError(err instanceof Error ? err.message : String(err)),
@@ -249,6 +248,7 @@ export function CanvasPanel({
         ) : (
           <MermaidCanvas
             code={rec.code}
+            svgElRef={mermaidSvgElRef}
             onNodeClick={(nodeText) => {
               // SPEC-17：节点文字 ↔ 章节确定性匹配 → 跳播（匹配不上不响应，宁可不跳不错跳）
               const ms = matchNodeAnchorMs(nodeText, sections);
@@ -332,11 +332,14 @@ let mermaidSeq = 0;
 /** Mermaid 流程图 → SVG 画布（滚轮缩放 + 拖拽平移 + 适配按钮） */
 export function MermaidCanvas({
   code,
+  svgElRef,
   onNodeClick,
   onRenderError,
   onSvgHtml,
 }: {
   code: string;
+  /** 渲染产物的存活 SVG 元素（导出自包含化用） */
+  svgElRef?: { current: SVGSVGElement | null };
   /** 节点被点击（回调拿到节点文字；锚点匹配由外层做） */
   onNodeClick?: (nodeText: string) => void;
   onRenderError?: (msg: string | null) => void;
@@ -376,6 +379,10 @@ export function MermaidCanvas({
         setScale(1);
         setOffset({ x: 0, y: 0 });
         onRenderError?.(null);
+        // 存活 SVG 元素挂到外层（导出自包含化用；等 DOM 注入后下一帧取）
+        requestAnimationFrame(() => {
+          if (svgElRef) svgElRef.current = hostRef.current?.querySelector('svg') ?? null;
+        });
       }
     })().catch((err: unknown) => {
       if (!cancelled) onRenderError?.(err instanceof Error ? err.message : String(err));
