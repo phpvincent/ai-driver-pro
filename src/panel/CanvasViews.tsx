@@ -22,6 +22,7 @@ import {
   CANVAS_EXPORT_FORMATS,
   ensureStandaloneSvg,
   exportCanvasAsFormat,
+  inlineSvgStyles,
   type CanvasExportFormat,
 } from './canvasExport';
 import { GenerationProgress } from './GenerationProgress';
@@ -178,7 +179,7 @@ export function CanvasPanel({
                       setMenuOpen(false);
                       const raw =
                         kind === 'mindmap' && markmapSvgRef.current
-                          ? new XMLSerializer().serializeToString(markmapSvgRef.current)
+                          ? inlineSvgStyles(markmapSvgRef.current) // foreignObject 内联计算样式 → 自包含
                           : mermaidSvg;
                       if (!raw) return;
                       const svg = ensureStandaloneSvg(raw);

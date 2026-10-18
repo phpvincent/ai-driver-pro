@@ -143,6 +143,31 @@ export function jpegBytesToPdf(jpeg: Uint8Array, pxWidth: number, pxHeight: numb
   return new Blob(parts as BlobPart[], { type: 'application/pdf' });
 }
 
+/**
+ * markmap 等 foreignObject SVG 的自包含化（Chromium SVG-as-image 硬要求）：
+ * 克隆 SVG，把 foreignObject 内每个元素的计算样式（getComputedStyle.cssText）
+ * 内联为 style 属性——序列化产物不依赖页面 CSS，浏览器才肯把它当图片加载栅格化。
+ * 这是 html-to-image / dom-to-image 系列库的同一原理。
+ */
+export function inlineSvgStyles(svgEl: SVGSVGElement): string {
+  const clone = svgEl.cloneNode(true) as SVGSVGElement;
+  const srcFos = Array.from(svgEl.querySelectorAll('foreignObject'));
+  clone.querySelectorAll('foreignObject').forEach((fo, i) => {
+    const srcEls = Array.from(srcFos[i]?.querySelectorAll<HTMLElement>('*') ?? []);
+    Array.from(fo.querySelectorAll<HTMLElement>('*')).forEach((el, j) => {
+      const srcEl = srcEls[j];
+      if (!srcEl) return;
+      try {
+        const css = getComputedStyle(srcEl).cssText;
+        if (css) el.setAttribute('style', css);
+      } catch {
+        /* 计算样式取不到（罕见）→ 保留原样 */
+      }
+    });
+  });
+  return new XMLSerializer().serializeToString(clone);
+}
+
 /** 二进制 Blob 下载（与 platform/files 的 downloadTextFile 同款兜件） */
 export function downloadBlobFile(filename: string, blob: Blob): void {
   if (typeof document === 'undefined') {
