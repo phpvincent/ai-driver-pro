@@ -28,14 +28,38 @@ export function ensureStandaloneSvg(svg: string): string {
   if (!/<svg\b[^>]*\bxmlns=/.test(out)) {
     out = out.replace(/<svg\b/, '<svg xmlns="http://www.w3.org/2000/svg"');
   }
-  if (!/<svg\b[^>]*\bwidth=/.test(out)) {
-    const vb = out.match(/<svg\b[^>]*\bviewBox="([\d.,\s-]+)"/)?.[1];
-    const nums = vb ? vb.split(/[,\s]+/).map(Number) : [];
-    const w = nums.length === 4 && nums[2] > 0 ? Math.ceil(nums[2]) : 1200;
-    const h = nums.length === 4 && nums[3] > 0 ? Math.ceil(nums[3]) : 800;
-    out = out.replace(/<svg\b/, `<svg width="${w}" height="${h}"`);
+  // 显式像素尺寸：mermaid 恒输出 width="100%"（非像素）——会被栅格化锁死在 100px。
+  // 非像素或缺失 → 一律用 viewBox（或默认）重写为像素。
+  const wMatch = out.match(/(<svg\b[^>]*?)\s(width)="([^"]*)"/);
+  const hMatch = out.match(/(<svg\b[^>]*?)\s(height)="([^"]*)"/);
+  const wOk = wMatch ? attrPixels(wMatch[3]) !== null : false;
+  const hOk = hMatch ? attrPixels(hMatch[3]) !== null : false;
+  if (wOk && hOk) return out;
+  const vb = out.match(/<svg\b[^>]*\bviewBox="([\d.,\s-]+)"/)?.[1];
+  const nums = vb ? vb.split(/[,\s]+/).map(Number) : [];
+  const w = !wOk && nums.length === 4 && nums[2] > 0 ? Math.ceil(nums[2]) : 1200;
+  const h = !hOk && nums.length === 4 && nums[3] > 0 ? Math.ceil(nums[3]) : 800;
+  let open = out.match(/<svg\b[^>]*>/)?.[0] ?? '';
+  if (!wOk) {
+    open = wMatch
+      ? open.replace(wMatch[0], `${wMatch[1]} width="${w}"`) // 只换属性，保留 <svg id=... 前缀
+      : open.replace(/<svg\b/, `<svg width="${w}"`);
   }
+  if (!hOk) {
+    open = hMatch
+      ? open.replace(hMatch[0], `${hMatch[1]} height="${h}"`)
+      : open.replace(/<svg\b/, `<svg height="${h}"`);
+  }
+  out = out.replace(/<svg\b[^>]*>/, open);
   return out;
+}
+
+/** SVG 属性值 → 像素数；百分比/auto/非法值返回 null（"100%" 是 mermaid 默认） */
+function attrPixels(v: string): number | null {
+  const n = Number.parseFloat(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (v.trim().endsWith('%')) return null;
+  return Math.round(n);
 }
 
 /** 解析 SVG 显式尺寸（ensureStandaloneSvg 之后必有） */
@@ -55,22 +79,39 @@ export async function svgToRaster(
 ): Promise<{ blob: Blob; width: number; height: number }> {
   const scale = opts.scale ?? 2;
   const { width, height } = svgIntrinsicSize(svg);
-  // 必须用 data URL：blob: URL 的 SVG 图（含 foreignObject，markmap/mermaid 均有）
-  // 会被 Chromium 按不透明源处理 → drawImage 后 canvas 被 taint → toBlob 抛 SecurityError。
-  // data URL 同源安全，是 html-to-image 等库验证过的可靠路径。
-  const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  // 编码阶梯（2026-10-19 用户实测 percent 编码在部分 SVG 上拒载）：
+  // ① percent-encoded data URL（同源安全，不 taint canvas——html-to-image 同路径）
+  // ② base64 data URL（规避 percent 编码对特殊字符的兼容坑）
+  // ③ blob: URL（最后手段——foreignObject 场景可能 taint，到 toBlob 才会暴露）
+  const candidates: Array<() => string> = [
+    () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+    () => `data:image/svg+xml;base64,${svgToBase64(svg)}`,
+    () => URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })),
+  ];
+  let img: HTMLImageElement | null = null;
+  let lastError = '所有编码方式均加载失败';
+  for (const make of candidates) {
+    const src = make();
+    try {
+      img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('load-failed'));
+        el.src = src;
+      });
+      break;
+    } catch {
+      lastError = '浏览器无法把当前导图渲染为位图（所有编码方式均拒载）';
+    } finally {
+      if (src.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(src), 5_000);
+    }
+  }
   {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () =>
-        reject(
-          new Error(
-            '图片转换失败：浏览器无法把当前导图渲染为位图（复杂样式所致）。请改用 SVG 格式下载。',
-          ),
-        );
-      el.src = dataUrl;
-    });
+    if (!img) {
+      throw new Error(
+        `图片转换失败：${lastError}。请改用 SVG 格式下载，或重新生成导图后重试。`,
+      );
+    }
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(img.naturalWidth * scale) || width * scale;
     canvas.height = Math.round(img.naturalHeight * scale) || height * scale;
@@ -143,6 +184,17 @@ export function jpegBytesToPdf(jpeg: Uint8Array, pxWidth: number, pxHeight: numb
   return new Blob(parts as BlobPart[], { type: 'application/pdf' });
 }
 
+/** SVG 字符串 → base64（分块处理，防大字符串 String.fromCharCode(...arr) 溢出） */
+function svgToBase64(svg: string): string {
+  const bytes = new TextEncoder().encode(svg);
+  let bin = '';
+  const CHUNK = 8_192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
 /**
  * markmap 等 foreignObject SVG 的自包含化（Chromium SVG-as-image 硬要求）：
  * 克隆 SVG，把 foreignObject 内每个元素的计算样式（getComputedStyle.cssText）
@@ -165,6 +217,19 @@ export function inlineSvgStyles(svgEl: SVGSVGElement): string {
       }
     });
   });
+  // 显式像素尺寸：markmap 的 svg 宽高多为 100%/样式化——栅格化会被锁死在 100px
+  // （用户实测"清晰度很差"的根因）。viewBox 覆盖全部内容范围，优先用它。
+  const vb = (svgEl.getAttribute('viewBox') ?? '').split(/[,\s]+/).map(Number);
+  const w =
+    vb.length === 4 && Number.isFinite(vb[2]) && vb[2] > 0
+      ? Math.ceil(vb[2])
+      : Math.ceil(svgEl.clientWidth || 1200);
+  const h =
+    vb.length === 4 && Number.isFinite(vb[3]) && vb[3] > 0
+      ? Math.ceil(vb[3])
+      : Math.ceil(svgEl.clientHeight || 800);
+  clone.setAttribute('width', String(w));
+  clone.setAttribute('height', String(h));
   return new XMLSerializer().serializeToString(clone);
 }
 

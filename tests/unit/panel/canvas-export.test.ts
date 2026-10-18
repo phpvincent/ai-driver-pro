@@ -61,3 +61,37 @@ describe('jpegBytesToPdf（零依赖 PDF 封装）', () => {
     ]);
   });
 });
+
+describe('ensureStandaloneSvg（百分比尺寸改写）', () => {
+  it('mermaid 风格 width="100%" → 按 viewBox 重写为像素（防 100px 栅格化）', () => {
+    const out = ensureStandaloneSvg(
+      '<svg id="x" width="100%" style="max-width: 800px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><g/></svg>',
+    );
+    expect(out).toMatch(/width="1600"/);
+    expect(out).toMatch(/height="900"/);
+    expect(svgIntrinsicSize(out)).toEqual({ width: 1600, height: 900 });
+  });
+
+  it('已有像素宽高保持不变', () => {
+    const out = ensureStandaloneSvg('<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600"/>');
+    expect(out).toContain('width="800"');
+    expect(out).toContain('height="600"');
+  });
+});
+
+describe('ensureStandaloneSvg（百分比尺寸改写）', () => {
+  it('mermaid 风格 width="100%" → 按 viewBox 重写为像素（防 100px 栅格化）', () => {
+    const out = ensureStandaloneSvg(
+      '<svg id="x" width="100%" style="max-width: 800px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><g/></svg>',
+    );
+    expect(out).toMatch(/width="1600"/);
+    expect(out).toMatch(/height="900"/);
+    expect(svgIntrinsicSize(out)).toEqual({ width: 1600, height: 900 });
+  });
+
+  it('已有像素宽高保持不变', () => {
+    const out = ensureStandaloneSvg('<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600"/>');
+    expect(out).toContain('width="800"');
+    expect(out).toContain('height="600"');
+  });
+});
