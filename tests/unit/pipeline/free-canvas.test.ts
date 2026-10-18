@@ -1,13 +1,17 @@
 /**
- * 自由画布纯函数单测（SPEC-13）：素材构建 / 围栏提取 / 归一 / Zod 校验 / 一次纠错重试。
+ * 自由画布纯函数单测（SPEC-13/17）：素材构建 / 围栏提取 / 归一 / Zod 校验 / 一次纠错重试 /
+ * 流程图 JSON 中间格式（spec 解析 → Mermaid 渲染：形状/配色/边标签/锚点）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Section } from '../../../src/types';
 import {
   buildCanvasUserPrompt,
+  CanvasFlowSpecSchema,
   extractFenced,
+  extractFlowSpecJson,
+  flowAnchorsOf,
+  flowSpecToMermaid,
   generateCanvas,
-  MermaidFlowSchema,
   MindmapMarkdownSchema,
   normalizeMermaidCode,
   normalizeMindmapMarkdown,
@@ -28,14 +32,14 @@ const section = (over: Partial<Section> = {}): Section =>
     ...over,
   }) as Section;
 
-describe('buildCanvasUserPrompt（素材：不带时间戳）', () => {
-  it('含标题/摘要/要点/术语，且不出现任何 mm:ss 时间戳', () => {
+describe('buildCanvasUserPrompt（素材：带章节时间范围供锚定）', () => {
+  it('含标题/摘要/要点/术语 + 章节起止时间（mm:ss–mm:ss）', () => {
     const p = buildCanvasUserPrompt([section()], '上下文管理');
     expect(p).toContain('上下文管理');
     expect(p).toContain('滑动窗口机制');
     expect(p).toContain('窗口大小固定');
     expect(p).toContain('滑动窗口、token');
-    expect(p).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(p).toContain('01:05–02:00'); // 章节时间范围：anchorSec 依据
   });
 });
 
@@ -65,44 +69,159 @@ describe('normalizeMermaidCode', () => {
   });
 });
 
-describe('Schema 校验（红线 4）', () => {
+describe('MindmapMarkdownSchema 校验（红线 4）', () => {
   it('导图：需根 + 分支', () => {
     expect(MindmapMarkdownSchema.safeParse('# 上下文管理核心主题\n## 滑动窗口机制板块').success).toBe(true);
     expect(MindmapMarkdownSchema.safeParse('# 只有一个根节点没有分支内容').success).toBe(false);
   });
-  it('流程图：需方向声明 + 连线', () => {
-    expect(MermaidFlowSchema.safeParse('flowchart TD\nA[开始]-->B[结束]').success).toBe(true);
-    expect(MermaidFlowSchema.safeParse('graph LR\nA-.->B').success).toBe(true);
-    expect(MermaidFlowSchema.safeParse('sequenceDiagram\nA->>B: hi').success).toBe(false);
-    expect(MermaidFlowSchema.safeParse('flowchart TD\nA[孤立节点很长很长]').success).toBe(false);
+});
+
+describe('CanvasFlowSpecSchema（流程图 JSON 中间格式）', () => {
+  const okSpec = {
+    direction: 'TD',
+    nodes: [
+      { id: 'A', text: '起点：需求背景', role: 'start', anchorSec: 0 },
+      { id: 'B', text: '判断：是否超限', role: 'decision' },
+      { id: 'C', text: '结果：重试或告警', role: 'output' },
+    ],
+    edges: [
+      { from: 'A', to: 'B', label: '触发检测' },
+      { from: 'B', to: 'C' },
+    ],
+  };
+
+  it('合法 spec 通过；边引用不存在的节点被拒；孤立边/重复 id 被拒', () => {
+    expect(CanvasFlowSpecSchema.safeParse(okSpec).success).toBe(true);
+    const brokenEdge = {
+      ...okSpec,
+      edges: [{ from: 'A', to: '不存在的节点', label: 'x' }],
+    };
+    expect(CanvasFlowSpecSchema.safeParse(brokenEdge).success).toBe(false);
+    const dupId = { ...okSpec, nodes: [...okSpec.nodes, okSpec.nodes[0]] };
+    expect(CanvasFlowSpecSchema.safeParse(dupId).success).toBe(false);
+  });
+
+  it('role 缺省回落 step；anchorSec 可省略', () => {
+    const parsed = CanvasFlowSpecSchema.parse({
+      nodes: [
+        { id: 'A', text: '甲乙丙丁' },
+        { id: 'B', text: '戊己庚辛' },
+      ],
+      edges: [{ from: 'A', to: 'B' }],
+    });
+    expect(parsed.nodes[0].role).toBe('step');
+    expect(parsed.nodes[0].anchorSec).toBeUndefined();
+  });
+});
+
+describe('flowSpecToMermaid（确定性渲染：形状/配色/边标签）', () => {
+  const spec = CanvasFlowSpecSchema.parse({
+    direction: 'LR',
+    nodes: [
+      { id: 'A', text: '起点：需求背景', role: 'start', anchorSec: 0 },
+      { id: 'B', text: '判断：是否超过上限', role: 'decision', anchorSec: 95 },
+      { id: 'C', text: '结果：告警并重试\n包含退避策略', role: 'output' },
+      { id: 'D', text: '普通步骤', role: 'step' },
+      { id: 'E', text: '最终结论', role: 'end' },
+    ],
+    edges: [
+      { from: 'A', to: 'B', label: '触发检测' },
+      { from: 'B', to: 'C' },
+      { from: 'B', to: 'E', label: '未超限' },
+      { from: 'D', to: 'B' },
+    ],
+  });
+  const mermaid = flowSpecToMermaid(spec);
+
+  it('方向声明 + 节点按 role 映射形状（胶囊/菱形/圆柱/方框）', () => {
+    expect(mermaid.startsWith('flowchart LR')).toBe(true);
+    expect(mermaid).toContain('A(["起点：需求背景"])'); // start 胶囊
+    expect(mermaid).toContain('B{"判断：是否超过上限"}'); // decision 菱形
+    expect(mermaid).toContain('C[("结果：告警并重试<br/>包含退避策略")]'); // output 圆柱 + 换行
+    expect(mermaid).toContain('D["普通步骤"]'); // step 方框
+  });
+
+  it('关系边带标签；无标签边为纯箭头', () => {
+    expect(mermaid).toContain('A -->|触发检测| B');
+    expect(mermaid).toContain('B --> C');
+    expect(mermaid).toContain('B -->|未超限| E');
+  });
+
+  it('配色 classDef 按 role 生成并分配（step 无 classDef）', () => {
+    expect(mermaid).toContain('classDef rolestart fill:#e7f5e8');
+    expect(mermaid).toContain('classDef roledecision fill:#fff4e0');
+    expect(mermaid).toContain('classDef roleoutput fill:#e1f5ee');
+    expect(mermaid).toContain('classDef roleend fill:#ecebfe');
+    expect(mermaid).toContain('class A rolestart');
+    expect(mermaid).toContain('class C roleoutput');
+    expect(mermaid).not.toContain('class D rolestep'); // step 走主题默认色
+  });
+
+  it('flowAnchorsOf：锚点表只含有 anchorSec 的节点', () => {
+    expect(flowAnchorsOf(spec)).toEqual({ A: 0, B: 95 });
+  });
+
+  it('文本双引号转义 #quot;', () => {
+    const esc = flowSpecToMermaid(
+      CanvasFlowSpecSchema.parse({
+        nodes: [
+          { id: 'A', text: '带"引号"的话' },
+          { id: 'B', text: '下一节点' },
+        ],
+        edges: [{ from: 'A', to: 'B' }],
+      }),
+    );
+    expect(esc).toContain('A["带#quot;引号#quot;的话"]');
+  });
+});
+
+describe('extractFlowSpecJson', () => {
+  it('容忍 ```json 围栏与前后废话', () => {
+    const spec = extractFlowSpecJson('好的：\n```json\n{"nodes":[{"id":"A","text":"xx"}],"edges":[]}\n```\n完');
+    expect((spec as { nodes: unknown[] }).nodes).toHaveLength(1);
+  });
+  it('无 JSON → throw（错误回灌给模型重试）', () => {
+    expect(() => extractFlowSpecJson('我画不出来')).toThrow();
   });
 });
 
 describe('generateCanvas（单调用 + 一次纠错重试）', () => {
   const base = { systemPrompt: 'sys', userPrompt: 'user', videoTitle: '课程' };
+  const okJson = JSON.stringify({
+    direction: 'TD',
+    nodes: [
+      { id: 'A', text: '起点', role: 'start', anchorSec: 5 },
+      { id: 'B', text: '结束', role: 'end' },
+    ],
+    edges: [{ from: 'A', to: 'B', label: '推导' }],
+  });
 
-  it('首轮合格直接返回（只调一次模型）', async () => {
-    const modelFn = vi.fn(async () => ({ content: '```mermaid\nflowchart TD\nA-->B\n```' }));
+  it('流程图：首轮 JSON 合格直接返回 Mermaid + 锚点 meta（只调一次模型）', async () => {
+    const modelFn = vi.fn(async () => ({ content: `\`\`\`json\n${okJson}\n\`\`\`` }));
     const out = await generateCanvas({ ...base, kind: 'flowchart', modelFn });
-    expect(out).toBe('flowchart TD\nA-->B');
+    expect(out.code).toContain('flowchart TD');
+    expect(out.code).toContain('A -->|推导| B');
+    expect(out.meta?.anchors).toEqual({ A: 5 });
     expect(modelFn).toHaveBeenCalledTimes(1);
   });
 
   it('首轮渲染器校验失败 → 错误回灌重试 → 成功', async () => {
+    const badJson = JSON.stringify({
+      direction: 'TD',
+      nodes: [{ id: 'A', text: '起点', role: 'start' }],
+      edges: [{ from: 'A', to: '幽灵节点' }],
+    });
     const modelFn = vi
       .fn()
-      .mockResolvedValueOnce({ content: '```mermaid\nflowchart TD\nA(坏]-->B\n```' })
-      .mockResolvedValueOnce({ content: '```mermaid\nflowchart TD\nA["好"]-->B\n```' });
-    const validate = vi.fn(async (code: string) => {
-      if (code.includes('A(坏]')) throw new Error('Parse error on line 2');
-    });
+      .mockResolvedValueOnce({ content: `\`\`\`json\n${badJson}\n\`\`\`` })
+      .mockResolvedValueOnce({ content: `\`\`\`json\n${okJson}\n\`\`\`` });
     const onRetry = vi.fn();
-    const out = await generateCanvas({ ...base, kind: 'flowchart', modelFn, validate, onRetry });
-    expect(out).toContain('A["好"]');
+    const out = await generateCanvas({ ...base, kind: 'flowchart', modelFn, onRetry });
+    expect(out.code).toContain('flowchart TD');
     expect(modelFn).toHaveBeenCalledTimes(2);
-    expect(onRetry).toHaveBeenCalledWith('Parse error on line 2');
-    // 重试 prompt 带上了具体错误
-    expect(modelFn.mock.calls[1]![0].userPrompt).toContain('Parse error on line 2');
+    expect(onRetry).toHaveBeenCalled();
+    // 重试 prompt 带上了具体校验错误
+    expect(modelFn.mock.calls[1]![0].userPrompt).toContain('幽灵节点');
   });
 
   it('两轮都失败 → throw 可读错误（不无限重试）', async () => {
@@ -111,9 +230,10 @@ describe('generateCanvas（单调用 + 一次纠错重试）', () => {
     expect(modelFn).toHaveBeenCalledTimes(2);
   });
 
-  it('导图路径：围栏 + 补根后通过校验', async () => {
+  it('导图路径：围栏 + 补根后通过校验（返回 code，无 meta）', async () => {
     const modelFn = vi.fn(async () => ({ content: '```markdown\n## 板块一\n### 细节甲\n## 板块二\n```' }));
     const out = await generateCanvas({ ...base, kind: 'mindmap', modelFn });
-    expect(out.startsWith('# 课程')).toBe(true);
+    expect(out.code.startsWith('# 课程')).toBe(true);
+    expect(out.meta).toBeUndefined();
   });
 });

@@ -1065,7 +1065,7 @@ export function MindmapTab(props: MindmapTabProps) {
 
       {view === 'flow' && !showEmptyGuide && (
         <div className="mm-view-body">
-          {/* SPEC-13：AI 自由流程图（mermaid），不再强制节点跳播 */}
+          {/* SPEC-13 自由流程图 + SPEC-17：节点点击跳播（锚点由蒸馏时的章节时间映射） */}
           <CanvasPanel
             kind="flowchart"
             videoId={videoId}
@@ -1073,6 +1073,7 @@ export function MindmapTab(props: MindmapTabProps) {
             videoTitle={videoTitle}
             modelReady={modelReady}
             onOpenSettings={onOpenSettings}
+            onRequestSeek={onRequestSeek}
           />
         </div>
       )}

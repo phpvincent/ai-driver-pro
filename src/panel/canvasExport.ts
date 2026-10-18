@@ -55,8 +55,11 @@ export async function svgToRaster(
 ): Promise<{ blob: Blob; width: number; height: number }> {
   const scale = opts.scale ?? 2;
   const { width, height } = svgIntrinsicSize(svg);
-  const blobUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-  try {
+  // 必须用 data URL：blob: URL 的 SVG 图（含 foreignObject，markmap/mermaid 均有）
+  // 会被 Chromium 按不透明源处理 → drawImage 后 canvas 被 taint → toBlob 抛 SecurityError。
+  // data URL 同源安全，是 html-to-image 等库验证过的可靠路径。
+  const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
       el.onload = () => resolve(el);
@@ -66,7 +69,7 @@ export async function svgToRaster(
             '图片转换失败：浏览器无法把当前导图渲染为位图（复杂样式所致）。请改用 SVG 格式下载。',
           ),
         );
-      el.src = blobUrl;
+      el.src = dataUrl;
     });
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(img.naturalWidth * scale) || width * scale;
@@ -78,13 +81,20 @@ export async function svgToRaster(
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, opts.type, opts.quality ?? 0.92),
-    );
+    const blob = await new Promise<Blob | null>((resolve, reject) => {
+      try {
+        canvas.toBlob(resolve, opts.type, opts.quality ?? 0.92);
+      } catch (err) {
+        // SecurityError: canvas 被 taint（foreignObject + 非 data 源等场景）→ 给用户可读出路
+        reject(
+          new Error(
+            `位图导出失败（${err instanceof Error ? err.message : String(err)}）。请改用 SVG 格式，或重新生成导图后重试。`,
+          ),
+        );
+      }
+    });
     if (!blob) throw new Error('位图编码失败（画布尺寸可能超出浏览器上限），请改用 SVG 格式');
     return { blob, width: canvas.width, height: canvas.height };
-  } finally {
-    URL.revokeObjectURL(blobUrl);
   }
 }
 

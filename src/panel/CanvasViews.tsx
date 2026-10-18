@@ -36,10 +36,20 @@ interface CanvasPanelProps {
   videoTitle: string;
   modelReady: boolean;
   onOpenSettings?: () => void;
+  /** SPEC-17：流程图节点点击 → 跳转到对应播放节点（毫秒） */
+  onRequestSeek?: (ms: number) => void;
 }
 
 /** 画布面板：缓存 → 生成按钮 → 渲染；失败显示原因 + 重试 */
-export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, onOpenSettings }: CanvasPanelProps) {
+export function CanvasPanel({
+  kind,
+  videoId,
+  sections,
+  videoTitle,
+  modelReady,
+  onOpenSettings,
+  onRequestSeek,
+}: CanvasPanelProps) {
   const [rec, setRec] = useState<CanvasRecord | null>(null);
   const [busy, setBusy] = useState(false);
   /** 跨画布互斥：任一画布生成中（含本面板），生成按钮禁用 */
@@ -54,8 +64,8 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
   const [error, setError] = useState<string | null>(null);
   /** 渲染层错误（mermaid 运行时渲染失败，罕见：parse 已过） */
   const [renderError, setRenderError] = useState<string | null>(null);
-  /** 导出格式（SPEC-17 配套：PNG/JPG/PDF/SVG——SVG 通用性差，多设备打不开） */
-  const [exportFormat, setExportFormat] = useState<CanvasExportFormat>('png');
+  /** 下载菜单展开中（聚合：图片四格式 + 源码，单按钮入口） */
+  const [menuOpen, setMenuOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => {
@@ -130,57 +140,79 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
       )}
       {rec && !busy && (
         <>
-          <select
-            className="btn"
-            aria-label="导出格式"
-            title="PNG/JPG/PDF 通用性最好（微信、手机、Word 都能开）；SVG 为矢量无损"
-            value={exportFormat}
-            onChange={(e) => setExportFormat(e.target.value as CanvasExportFormat)}
-            style={{ padding: '4px 6px' }}
-          >
-            {CANVAS_EXPORT_FORMATS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn"
-            disabled={exportBusy}
-            title="按所选格式下载当前导图"
-            onClick={() => {
-              const raw =
-                kind === 'mindmap' && markmapSvgRef.current
-                  ? new XMLSerializer().serializeToString(markmapSvgRef.current)
-                  : mermaidSvg;
-              if (!raw) return;
-              const svg = ensureStandaloneSvg(raw);
-              setExportBusy(true);
-              void exportCanvasAsFormat({
-                svg,
-                format: exportFormat,
-                fileName: canvasDownloadFileName(videoTitle, kind, ''),
-              })
-                .catch((err: unknown) =>
-                  setError(err instanceof Error ? err.message : String(err)),
-                )
-                .finally(() => setExportBusy(false));
-            }}
-          >
-            {exportBusy ? '导出中…' : '下载图片'}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            title={kind === 'mindmap' ? '下载层级 Markdown 源码（可再编辑 / 导入导图工具）' : '下载 Mermaid 源码（可在支持 Mermaid 的编辑器再编辑）'}
-            onClick={() => {
-              const ext = kind === 'mindmap' ? 'md' : 'mmd';
-              downloadTextFile(canvasDownloadFileName(videoTitle, kind, ext), rec.code, 'text/plain');
-            }}
-          >
-            下载源码
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={exportBusy}
+              aria-expanded={menuOpen}
+              title="下载当前导图：PNG/JPG/PDF/SVG 或源码"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              {exportBusy ? '导出中…' : '下载 ▾'}
+            </button>
+            {menuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  zIndex: 30,
+                  minWidth: 190,
+                  padding: 4,
+                  background: '#fff',
+                  border: '1px solid #e5e6eb',
+                  borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(29,33,41,.12)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {CANVAS_EXPORT_FORMATS.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    className="btn"
+                    style={{ justifyContent: 'flex-start', border: 'none', textAlign: 'left' }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      const raw =
+                        kind === 'mindmap' && markmapSvgRef.current
+                          ? new XMLSerializer().serializeToString(markmapSvgRef.current)
+                          : mermaidSvg;
+                      if (!raw) return;
+                      const svg = ensureStandaloneSvg(raw);
+                      setExportBusy(true);
+                      void exportCanvasAsFormat({
+                        svg,
+                        format: f.value,
+                        fileName: canvasDownloadFileName(videoTitle, kind, ''),
+                      })
+                        .catch((err: unknown) =>
+                          setError(err instanceof Error ? err.message : String(err)),
+                        )
+                        .finally(() => setExportBusy(false));
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ justifyContent: 'flex-start', border: 'none', textAlign: 'left' }}
+                  title={kind === 'mindmap' ? '层级 Markdown 源码（可再编辑 / 导入导图工具）' : 'Mermaid 源码（可在支持 Mermaid 的编辑器再编辑）'}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    const ext = kind === 'mindmap' ? 'md' : 'mmd';
+                    downloadTextFile(canvasDownloadFileName(videoTitle, kind, ext), rec.code, 'text/plain');
+                  }}
+                >
+                  {kind === 'mindmap' ? '源码（Markdown）' : '源码（Mermaid）'}
+                </button>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -214,7 +246,13 @@ export function CanvasPanel({ kind, videoId, sections, videoTitle, modelReady, o
         kind === 'mindmap' ? (
           <MarkmapCanvas markdown={rec.code} svgElRef={markmapSvgRef} />
         ) : (
-          <MermaidCanvas code={rec.code} onRenderError={setRenderError} onSvgHtml={setMermaidSvg} />
+          <MermaidCanvas
+            code={rec.code}
+            anchors={rec.meta?.anchors}
+            onNodeSeek={(sec) => onRequestSeek?.(sec * 1000)}
+            onRenderError={setRenderError}
+            onSvgHtml={setMermaidSvg}
+          />
         )
       ) : (
         !busy &&
@@ -290,10 +328,15 @@ let mermaidSeq = 0;
 /** Mermaid 流程图 → SVG 画布（滚轮缩放 + 拖拽平移 + 适配按钮） */
 export function MermaidCanvas({
   code,
+  anchors,
+  onNodeSeek,
   onRenderError,
   onSvgHtml,
 }: {
   code: string;
+  /** 节点 id → 秒（SPEC-17：点击节点跳转播放） */
+  anchors?: Record<string, number>;
+  onNodeSeek?: (sec: number) => void;
   onRenderError?: (msg: string | null) => void;
   /** 渲染成功的 svg 字符串（外层下载 SVG 用） */
   onSvgHtml?: (svg: string) => void;
@@ -319,7 +362,9 @@ export function MermaidCanvas({
           lineColor: '#4e5969',
           fontSize: '14px',
         },
-        flowchart: { curve: 'basis', htmlLabels: true, padding: 12 },
+        // htmlLabels:false → 纯 SVG text 标签（无 foreignObject）：位图导出不再 taint canvas，
+        // 且 SVG 文件在任何渲染器中样式一致
+        flowchart: { curve: 'basis', htmlLabels: false, padding: 12 },
       });
       const id = `vsc-mmd-${++mermaidSeq}`;
       const { svg: out } = await mermaid.render(id, code);
@@ -388,6 +433,16 @@ export function MermaidCanvas({
         }}
         onMouseLeave={() => {
           dragRef.current = null;
+        }}
+        onClick={(e) => {
+          // SPEC-17 节点点击跳播：mermaid 节点 g 的 id 形如 flowchart-{id}-{n}；
+          // 未命中锚点 → 不响应
+          if (!onNodeSeek || !anchors) return;
+          const g = (e.target as Element).closest('g.node');
+          if (!g) return;
+          const id = (g.id.match(/^flowchart-(.+?)-\d+$/)?.[1] ?? '').trim();
+          const sec = id ? anchors[id] : undefined;
+          if (typeof sec === 'number') onNodeSeek(sec);
         }}
       >
         <div
