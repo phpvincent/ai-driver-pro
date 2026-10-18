@@ -79,14 +79,9 @@ export async function svgToRaster(
   svg: string,
   opts: { type: 'image/png' | 'image/jpeg'; scale?: number; background?: string; quality?: number },
 ): Promise<{ blob: Blob; width: number; height: number }> {
-  const scale = opts.scale ?? 2;
-  const { width, height } = svgIntrinsicSize(svg);
-  // 目标像素 = 自然尺寸 × scale，且保底 2000px 宽（侧边栏小容器导出依然可用）
-  const targetW = Math.max(2000, Math.round(width * scale));
-  const targetH = Math.max(1, Math.round((targetW * height) / width));
-  // 关键：把目标分辨率**烘焙进 SVG 声明尺寸**——foreignObject 里的 HTML 文字
-  // 是按 SVG 声明尺寸栅格化的，canvas 再放大只会让文字变糊。1:1 绘制才锐利。
-  const sizedSvg = rewriteSvgSize(svg, targetW, targetH);
+  // SVG 声明尺寸即目标分辨率（调用方已烘焙/已缩放）；实体归一防 XML 拒载
+  const sizedSvg = xmlSafeSvg(svg);
+  const { width: targetW, height: targetH } = svgIntrinsicSize(sizedSvg);
   // 编码阶梯（2026-10-19 用户实测 percent 编码在部分 SVG 上拒载）：
   // ① percent-encoded data URL（同源安全，不 taint canvas——html-to-image 同路径）
   // ② base64 data URL（规避 percent 编码对特殊字符的兼容坑）
@@ -194,6 +189,20 @@ export function jpegBytesToPdf(jpeg: Uint8Array, pxWidth: number, pxHeight: numb
   return new Blob(parts as BlobPart[], { type: 'application/pdf' });
 }
 
+/**
+ * XML 实体归一：mermaid 11 的标签渲染会把空格写成 &nbsp;（HTML 命名实体，
+ * **XML 非法**）——SVG-as-image 按 XML 解析 → parsererror → 三种编码全部拒载。
+ * 解码所有非 XML 五实体为真实字符（\u00A0 等在 XML 文本节点中合法）。
+ */
+export function xmlSafeSvg(svg: string): string {
+  const decode = document.createElement('textarea');
+  return svg.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, (ent) => {
+    if (/^&(amp|lt|gt|quot|apos);$/.test(ent)) return ent; // XML 五实体合法
+    decode.innerHTML = ent;
+    return decode.value;
+  });
+}
+
 /** SVG 拒载原因诊断（自动检查，不猜）：XML 合法性 / foreignObject 存在性 */
 function diagnoseSvgFailure(svg: string): string {
   try {
@@ -227,7 +236,11 @@ function svgToBase64(svg: string): string {
  * 内联为 style 属性——序列化产物不依赖页面 CSS，浏览器才肯把它当图片加载栅格化。
  * 这是 html-to-image / dom-to-image 系列库的同一原理。
  */
-export function inlineSvgStyles(svgEl: SVGSVGElement): string {
+export function inlineSvgStyles(
+  svgEl: SVGSVGElement,
+  targetW?: number,
+  targetH?: number,
+): string {
   const clone = svgEl.cloneNode(true) as SVGSVGElement;
   const srcFos = Array.from(svgEl.querySelectorAll('foreignObject'));
   clone.querySelectorAll('foreignObject').forEach((fo, i) => {
@@ -244,18 +257,30 @@ export function inlineSvgStyles(svgEl: SVGSVGElement): string {
     });
   });
   // 显式像素尺寸：markmap 的 svg 宽高多为 100%/样式化——栅格化会被锁死在 100px
-  // （用户实测"清晰度很差"的根因）。viewBox 覆盖全部内容范围，优先用它。
+  // （用户实测"清晰度很差"的根因）。优先目标尺寸，回落 viewBox/实测。
   const vb = (svgEl.getAttribute('viewBox') ?? '').split(/[,\s]+/).map(Number);
-  const w =
-    vb.length === 4 && Number.isFinite(vb[2]) && vb[2] > 0
-      ? Math.ceil(vb[2])
-      : Math.ceil(svgEl.clientWidth || 1200);
-  const h =
-    vb.length === 4 && Number.isFinite(vb[3]) && vb[3] > 0
-      ? Math.ceil(vb[3])
-      : Math.ceil(svgEl.clientHeight || 800);
+  const baseW = attrPixels(svgEl.getAttribute('width') ?? '') ?? Math.ceil(svgEl.clientWidth || 1200);
+  const baseH = attrPixels(svgEl.getAttribute('height') ?? '') ?? Math.ceil(svgEl.clientHeight || 800);
+  const w = targetW ?? (vb.length === 4 && Number.isFinite(vb[2]) && vb[2] > 0 ? Math.ceil(vb[2]) : baseW ?? 1200);
+  const h = targetH ?? (vb.length === 4 && Number.isFinite(vb[3]) && vb[3] > 0 ? Math.ceil(vb[3]) : baseH ?? 800);
   clone.setAttribute('width', String(w));
   clone.setAttribute('height', String(h));
+  // markmap 无 viewBox：内容经根 g 的 translate+scale 缩进容器——画布放大后
+  // transform 必须同步放大，否则内容仍按原比例挤在左上角（"横向被压缩"根因）。
+  const factor = baseW > 0 ? w / baseW : 1;
+  if (Math.abs(factor - 1) > 0.01) {
+    const g = clone.querySelector('g');
+    const tf = g?.getAttribute('transform');
+    if (tf) {
+      const m = tf.match(/translate\(\s*([-.\d]+)[,\s]+([-.\d]+)\s*\)\s*(?:scale\(\s*([-.\d]+)\s*\))?/);
+      if (m && g) {
+        const tx = Number(m[1]) * factor;
+        const ty = Number(m[2]) * factor;
+        const k = Number(m[3] ?? 1) * factor;
+        g.setAttribute('transform', `translate(${tx},${ty}) scale(${k})`);
+      }
+    }
+  }
   return new XMLSerializer().serializeToString(clone);
 }
 
@@ -289,9 +314,23 @@ export async function exportCanvasAsFormat(args: {
   /** 超采样倍率（默认 2；小容器导图建议 3） */
   scale?: number;
 }): Promise<void> {
-  const { format, fileName, scale } = args;
-  const raw = args.svgEl ? inlineSvgStyles(args.svgEl) : ensureStandaloneSvg(args.svg ?? '');
-  const svg = ensureStandaloneSvg(raw);
+  const { format, fileName } = args;
+  const scale = args.scale ?? 2;
+  // 目标尺寸 = 基数（元素实测/声明）× scale，保底 2000px 宽
+  const baseW =
+    (args.svgEl ? attrPixels(args.svgEl.getAttribute('width') ?? '') : null) ??
+    (args.svgEl?.clientWidth ?? 0) ??
+    0;
+  const baseH =
+    (args.svgEl ? attrPixels(args.svgEl.getAttribute('height') ?? '') : null) ??
+    (args.svgEl?.clientHeight ?? 0) ??
+    0;
+  const targetW = Math.max(2000, Math.round(baseW * scale));
+  const targetH = Math.max(1, Math.round(targetW * (baseH / (baseW || 1))));
+  const raw = args.svgEl
+    ? inlineSvgStyles(args.svgEl, targetW, targetH)
+    : rewriteSvgSize(ensureStandaloneSvg(args.svg ?? ''), targetW, targetH);
+  const svg = ensureStandaloneSvg(xmlSafeSvg(raw));
   if (format === 'svg') {
     downloadBlobFile(`${fileName}.svg`, new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
     return;
