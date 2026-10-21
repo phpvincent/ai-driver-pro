@@ -11,6 +11,9 @@ import {
   isDenseSections,
   cueWindows,
 } from '../../../src/core/vision/framePlanner';
+// 静态 import：动态 import 的冷加载（zod 依赖图经 vite-node 现场转译）会吃掉单测 5s 超时
+// （真机：首个 await import 耗时 6~48s，视环境放大），加载成本移到 collect 阶段。
+import { FramePlanSchema, validateFramePlan } from '../../../src/core/vision/llmFramePlan';
 import type { Section } from '../../../src/types';
 
 const MIN = 60_000;
@@ -74,14 +77,12 @@ describe('frameBudgetFor（随时长增长 · 分段递减 · 章节兜底）', 
 });
 
 describe('长视频的下游链路不会再次吞帧', () => {
-  it('抽帧规划 Schema 容得下硬上限帧数', async () => {
-    const { FramePlanSchema } = await import('../../../src/core/vision/llmFramePlan');
+  it('抽帧规划 Schema 容得下硬上限帧数', () => {
     const many = { targets: Array.from({ length: FRAME_PLAN.mindmap.hardMax }, (_, i) => ({ tSec: i * 60 })) };
     expect(FramePlanSchema.safeParse(many).success).toBe(true);
   });
 
-  it('规划输出被截断时仍能解析出已完整的帧', async () => {
-    const { validateFramePlan } = await import('../../../src/core/vision/llmFramePlan');
+  it('规划输出被截断时仍能解析出已完整的帧', () => {
     const cues = Array.from({ length: 100 }, (_, i) => ({ index: i, startMs: i * 30_000, endMs: i * 30_000 + 29_000, text: `句${i}` }));
     const truncated = '{"targets":[{"tSec":0},{"tSec":60},{"tSec":120},{"tSec":180,"cov';
     const out = validateFramePlan(truncated, { sections: [], cues, durationMs: 3_000_000, budget: 40, minGapMs: 15_000 });

@@ -422,6 +422,115 @@ describe('upsertDomainTag（领域标签注入）', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SPEC-20：wikilink 目标=落盘名 + 父级 MOC 图谱结构链
+// ---------------------------------------------------------------------------
+import {
+  buildParentMocMarkdown,
+  buildConceptPageMarkdown,
+  conceptNotePath,
+  parentDomain,
+  wikiLink,
+} from '../../../src/core/pipeline/capture';
+
+describe('wikiLink（wikilink 目标 = sanitizeFileName 落盘名）', () => {
+  it('含非法字符名：目标清洗、显示保留原名（真机：h$*6 快捷键 → h$_6 快捷键.md）', () => {
+    expect(wikiLink('h$*6 快捷键')).toBe('[[h$_6 快捷键|h$*6 快捷键]]');
+  });
+  it('干净名：省略别名，保持 markdown 干净', () => {
+    expect(wikiLink('加强论点')).toBe('[[加强论点]]');
+  });
+  it('目标与 conceptNotePath 落盘名一致（图谱边不因清洗分叉而断）', () => {
+    const name = 'open in browser 插件?';
+    const target = wikiLink(name).match(/\[\[([^|\]]+)/)?.[1] ?? '';
+    expect(conceptNotePath(name, 'root').endsWith(`/${target}.md`)).toBe(true);
+  });
+});
+
+describe('buildConceptLinksBlock / buildConceptPageMarkdown 的 wikilink 目标', () => {
+  it('涉及概念区块：非法字符概念的 wikilink 目标是落盘名', () => {
+    const block = buildConceptLinksBlock({
+      conceptNames: ['加强论点', 'h$*6 快捷键'],
+      rawLink: 'BV1xx_p7',
+    });
+    expect(block).toContain('- [[加强论点]]');
+    expect(block).toContain('- [[h$_6 快捷键|h$*6 快捷键]]');
+    expect(block).not.toContain('- [[h$*6 快捷键]]'); // 不再出现无法解析的原名目标
+  });
+  it('上位概念 wikilink 目标是落盘名', () => {
+    const md = buildConceptPageMarkdown({
+      preferred: 'align 属性',
+      aliases: [],
+      definition: '对齐属性',
+      broader: 'HTML*属性',
+      domain: '前端开发',
+      reference: '',
+    });
+    expect(md).toContain('上位概念：[[HTML_属性|HTML*属性]]');
+  });
+});
+
+describe('parentDomain / parentMocPath（复合领域父域派生）', () => {
+  it('末段 _ 前缀为父域', () => {
+    expect(parentDomain('公考_判断推理')).toBe('公考');
+    expect(parentDomain('公考_判断推理_图形')).toBe('公考_判断推理');
+  });
+  it('单段域无父域', () => {
+    expect(parentDomain('前端开发')).toBe('');
+    expect(parentDomain('通用')).toBe('');
+    expect(parentDomain('')).toBe('');
+  });
+});
+
+describe('buildMocMarkdown 上域回链 + buildParentMocMarkdown', () => {
+  const entries = [
+    {
+      path: '视频学习副驾/笔记/公考_判断推理/bilibili_BV1xx/判断20.md',
+      title: '判断20',
+      category: 'video-note' as const,
+      tags: ['ai'],
+      terms: [],
+      summaryPreview: '加强',
+      videoId: 'BV1xx_p22',
+      updatedAt: '2026-10-22',
+      domain: '公考_判断推理',
+    },
+    {
+      path: '视频学习副驾/笔记/公考_言语理解/bilibili_BV1xx/言语1.md',
+      title: '言语1',
+      category: 'video-note' as const,
+      tags: ['ai'],
+      terms: [],
+      summaryPreview: '对策',
+      videoId: 'BV1xx_p26',
+      updatedAt: '2026-10-22',
+      domain: '公考_言语理解',
+    },
+  ];
+  it('复合领域 MOC 含上域回链；单段域不含', () => {
+    const sub = buildMocMarkdown({ domain: '公考_判断推理', entries });
+    expect(sub).toContain('上域：[[MOC-公考]]');
+    const flat = buildMocMarkdown({ domain: '前端开发', entries: [] });
+    expect(flat).not.toContain('上域：');
+  });
+  it('父级 MOC 列出全部同父域子域的 MOC 链接', () => {
+    const parent = buildParentMocMarkdown({
+      parent: '公考',
+      childDomains: ['公考_判断推理', '公考_言语理解', '前端开发'],
+    });
+    expect(parent).toContain('[[MOC-公考_判断推理|公考_判断推理]]');
+    expect(parent).toContain('[[MOC-公考_言语理解|公考_言语理解]]');
+    expect(parent).not.toContain('前端开发'); // 不同父域不混入
+  });
+  it('子域集合去重排序', () => {
+    const parent = buildParentMocMarkdown({
+      parent: '公考',
+      childDomains: ['公考_言语理解', '公考_判断推理', '公考_判断推理'],
+    });
+    expect(parent.match(/MOC-公考_/g)?.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SPEC-17 检索实测轮：术语包含匹配（中文无分词，问题片段常含概念名）
 // ---------------------------------------------------------------------------
 describe('searchIndex 术语包含匹配（E2E 实测暴露的漏检修复）', () => {

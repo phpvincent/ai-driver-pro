@@ -17,6 +17,7 @@ import {
   buildConceptPageMarkdown,
   buildIndexMarkdown,
   buildMocMarkdown,
+  buildParentMocMarkdown,
   buildRawMarkdown,
   buildTermCardMarkdown,
   buildVideoNoteIndexEntry,
@@ -38,6 +39,7 @@ import {
   upsertConceptLinksBlock,
   upsertDomainTag,
   mocPath,
+  parentDomain,
   playbackUrl,
   sanitizeBroader,
   termNotePath,
@@ -414,17 +416,47 @@ export async function saveVideoNoteToObsidian(args: {
   }
   await writeIndex(cfg, fetchFn, fileNext);
 
-  // ---- 领域 MOC（人类目录）：存入时重建该领域页 ----
+  // ---- 领域 MOC（人类目录）：存入时重建该领域页；复合领域同步重建父级 MOC ----
   await putNote(
     cfg,
     fetchFn,
     joinVaultPath(cfg.rootDir, mocPath(domain)),
     buildMocMarkdown({ domain, entries: fileNext.entries }),
   ).catch(() => undefined);
+  await writeParentMocIfAny(cfg, fetchFn, domain, fileNext.entries);
 
   // ---- SPEC-17 存入即体检：对刚写回的索引跑 Lint（纯函数，零额外请求）----
   const lintIssues = lintKnowledgeIndex(fileNext);
   return { path: videoNote, ...(lintIssues.length > 0 ? { lintIssues } : {}) };
+}
+
+/**
+ * SPEC-20：复合领域（`公考_判断推理`）同步重建父级 MOC（`MOC-公考`），
+ * 列出全部同父域子域——同父域笔记经此页在 Obsidian 图谱中连通。
+ * 单段域（`前端开发`）无父域，跳过。
+ */
+async function writeParentMocIfAny(
+  cfg: { rootDir: string },
+  fetchFn: ObsidianFetch,
+  domain: string,
+  entries: ReadonlyArray<{ domain?: string }>,
+): Promise<void> {
+  const parent = parentDomain(domain);
+  if (!parent) return;
+  const childDomains = [
+    ...new Set(
+      entries
+        .map((e) => e.domain)
+        .filter((d): d is string => !!d && parentDomain(d) === parent),
+    ),
+  ];
+  if (!childDomains.includes(domain)) childDomains.push(domain);
+  await putNote(
+    cfg,
+    fetchFn,
+    joinVaultPath(cfg.rootDir, mocPath(parent)),
+    buildParentMocMarkdown({ parent, childDomains }),
+  ).catch(() => undefined);
 }
 
 /**
@@ -636,6 +668,7 @@ export async function repairKnowledgeHealth(): Promise<HealthRepairReport | null
       joinVaultPath(cfg.rootDir, mocPath(d)),
       buildMocMarkdown({ domain: d, entries: finalEntries }),
     ).catch(() => undefined);
+    await writeParentMocIfAny(cfg, fetchFn, d, finalEntries);
   }
   return report;
 }

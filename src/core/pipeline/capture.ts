@@ -125,6 +125,18 @@ export function sanitizeFileName(name: string): string {
   return clipped.length > 0 ? clipped : '_';
 }
 
+/**
+ * wikilink 统一出口（SPEC-20）：**链接目标 = sanitizeFileName 后的落盘文件名**，
+ * 显示名保留原名。名称含 `* ? |` 等非法字符时二者必然分叉（真机：概念 `h$*6 快捷键`
+ * 落盘 `h$_6 快捷键.md`，笔记却写 `[[h$*6 快捷键]]` → Obsidian 解析不到、图谱断链），
+ * 因此所有概念/上位概念 wikilink 必须走本函数，禁止手拼 `[[${name}]]`。
+ * sanitize 后与原名一致时省略别名，保持 markdown 干净。
+ */
+export function wikiLink(preferred: string): string {
+  const target = sanitizeFileName(preferred);
+  return target === preferred ? `[[${target}]]` : `[[${target}|${preferred}]]`;
+}
+
 /** vault 路径拼接：忽略空段，逐段去掉首尾斜杠与空白 */
 export function joinVaultPath(...segments: string[]): string {
   return segments
@@ -554,6 +566,10 @@ export function buildMocMarkdown(args: {
     `本领域共 ${inDomain.length} 条知识（笔记 ${inDomain.filter((e) => e.category === 'video-note').length} · 概念 ${inDomain.filter((e) => e.category === 'concept' || e.category === 'term').length} · 问答 ${inDomain.filter((e) => e.category === 'qa').length}）。`,
     '',
     '_本文件由扩展生成；机器检索读 `_meta/index.json`，人类浏览从这里出发。_',
+    // SPEC-20：复合领域回链父级 MOC（图谱结构链：同父域子域经 MOC-父域 互通）
+    ...(parentDomain(args.domain)
+      ? ['', `上域：[[${mocFileName(parentDomain(args.domain))}]]`]
+      : []),
     '',
   ];
   for (const g of groups) {
@@ -588,7 +604,8 @@ export function buildConceptLinksBlock(args: {
 }): string {
   const lines = [CONCEPTS_MARKER_START, '', '## 涉及概念', ''];
   if (args.conceptNames.length > 0) {
-    for (const c of args.conceptNames) lines.push(`- [[${c}]]`);
+    // SPEC-20：目标 = sanitizeFileName 后的落盘名，保证 Obsidian 能解析到概念页
+    for (const c of args.conceptNames) lines.push(`- ${wikiLink(c)}`);
     lines.push('');
   }
   lines.push(`原文：[[${args.rawLink}|字幕原文（raw）]]`, '', CONCEPTS_MARKER_END);
@@ -653,9 +670,47 @@ ${lines
     .join('\n').replace(/^\n+/, '')}`;
 }
 
+/** MOC 文件名（不含目录）：`MOC-{领域}.md` */
+export function mocFileName(domain: string): string {
+  return `MOC-${sanitizeFileName(domain || DEFAULT_DOMAIN)}`;
+}
+
 /** MOC 落盘路径：索引/MOC-{领域}.md */
 export function mocPath(domain: string): string {
-  return joinVaultPath(NOTE_DIR.moc, `MOC-${sanitizeFileName(domain || DEFAULT_DOMAIN)}.md`);
+  return joinVaultPath(NOTE_DIR.moc, `${mocFileName(domain)}.md`);
+}
+
+/**
+ * 父域派生（SPEC-20）：取末段 `_` 之前的前缀。
+ * `公考_判断推理` → `公考`；`公考_判断推理_图形` → `公考_判断推理`；`前端开发` → `''`。
+ * 单段域无父域，不产出父级 MOC。
+ */
+export function parentDomain(domain: string): string {
+  const i = domain.lastIndexOf('_');
+  return i > 0 ? domain.slice(0, i) : '';
+}
+
+/**
+ * 父级 MOC（SPEC-20 图谱结构链）：列出全部同父域子域的 MOC 链接。
+ * 同父域的笔记分属不同子域时（公考_判断推理 / 公考_言语理解），经此页在图谱中连通。
+ */
+export function buildParentMocMarkdown(args: {
+  parent: string;
+  childDomains: ReadonlyArray<string>;
+}): string {
+  const children = [...new Set(args.childDomains.filter((d) => parentDomain(d) === args.parent))].sort();
+  const lines = [
+    `# MOC · ${args.parent}`,
+    '',
+    `本域共 ${children.length} 个子域。`,
+    '',
+    '_本文件由扩展生成；子域详情见各自 MOC。_',
+    '',
+    '## 子域',
+    '',
+    ...children.map((d) => `- [[${mocFileName(d)}|${d}]]`),
+  ];
+  return `${lines.join('\n').trim()}\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -907,8 +962,8 @@ export function buildConceptPageMarkdown(args: {
     '',
     '> [!note] AI 蒸馏 · 待核验',
     `> **定义（划界）**：${args.definition}`,
-    // 上位概念 wikilink（SPEC-17 关联网：概念 → 上位概念 的图谱边）
-    ...(args.broader ? ['', `上位概念：[[${args.broader}]]`] : []),
+    // 上位概念 wikilink（SPEC-17 关联网：概念 → 上位概念 的图谱边；SPEC-20 目标=落盘名）
+    ...(args.broader ? ['', `上位概念：${wikiLink(args.broader)}`] : []),
     // SPEC-18：引用记录为空时省略该节（宁缺毋滥，不写占位条目）
     ...(args.reference.trim().length > 0 ? ['', '## 引用记录', '', args.reference] : []),
   ];

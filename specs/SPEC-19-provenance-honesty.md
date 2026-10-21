@@ -1,6 +1,6 @@
 # SPEC-19 · 溯源诚实性与入库校验强化
 
-- 状态：进行中
+- 状态：待验收（19.1-19.6 施工完成，自动门禁全绿；余 A9 [人工] 清空重建后抽查）
 - 依赖：SPEC-18（蒸馏质量门禁，已交付；本 spec 为其第二轮补强）
 - 对应里程碑：MX（知识库可信度）
 - 验收 tag：`spec-19-accepted`
@@ -64,3 +64,4 @@
 | 日期 | 执行者 | 变更摘要 | 自测结果 | commit |
 |---|---|---|---|---|
 | 2026-10-22 | 父 agent | 立项（依第二轮审计 + 实证复核） | — | — |
+| 2026-10-22 | 父 agent | 19.1-19.6 一次交付：locateQuoteInRaw（verbatim 引文由代码从 raw 截取原文、锚点=命中行时间戳，根治批量赋锚；判据用双向覆盖率 quoteCover≥0.85 且 sourceCover≥0.6，因单一相似度会被"短碎片吞长改写句"误判）+ 未命中强制降级 paraphrase；normalizeBullets 滑动窗 ±5s/0.6 去重；filterTerms 补中文/快捷键/盘符 + 正文术语行与 frontmatter tags 同过滤；sanitizeBroader（自指/悬空置空）；sanitizeFileName 归一 `._` 与首尾标点；prompt 升 distill 0.5.0 / knowledge-capture 0.4.0（broader 母题、章节主题一致）；删死代码 quoteWindowCoverage | tsc 干净；vitest 1263 全绿（distill-quality 46）；vite build 零错误；redlines + prompts 过 | 0c9d7ed |
