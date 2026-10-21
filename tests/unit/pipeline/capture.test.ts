@@ -138,7 +138,8 @@ describe('sanitizeFileName', () => {
   });
 
   it('全非法字符 → 回落 _', () => {
-    expect(sanitizeFileName('///')).toBe('___');
+    // 非法字符替换为 _ 后再清尾随下划线（SPEC-19 N-6），全非法时回落占位 _
+    expect(sanitizeFileName('///')).toBe('_');
   });
 });
 

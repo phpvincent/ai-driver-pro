@@ -155,16 +155,17 @@ export function enforceMinDuration(
 }
 
 /**
- * 章节要点确定性归一（SPEC-18 18.1）：
+ * 章节要点确定性归一（SPEC-18 18.1 / SPEC-19 19.2）：
  * 大纲 bullets 由模型分块产出，拼接后会出现乱序 / 重复 / 越界（落在所属章节区间外），
  * 直接渲染会让"章节语义分割"失去可信度。这里用纯函数一次性根除，**不重切章节**：
  *
  * 1. 过滤：text 非空、startMs 有限非负；
- * 2. 稳定排序：按 startMs 升序（同刻保持原相对顺序）；
- * 3. 同刻去重：同一 startMs 上文本高度重叠（字符集合 Jaccard ≥ 0.8）视为同一条要点的
- *    两种措辞（分块拼接产物），保留文本较长的一条；文本不同则都保留；
- * 4. 越界回落：startMs 落在 [sectionStartMs, sectionEndMs] 之外 → 回落到章节起点并标
- *    `approximate: true`（与 snapBullets 的回落语义一致，红线 2：不使用幻觉时间戳）。
+ * 2. **越界回落**（必须在排序之前）：startMs 落在 [sectionStartMs, sectionEndMs] 之外 →
+ *    回落到章节起点并标 `approximate: true`（与 snapBullets 语义一致，红线 2）；
+ * 3. 稳定排序：按 startMs 升序（同刻保持原相对顺序）；
+ * 4. **滑动窗近重复去重**（SPEC-19）：与前一条时间差 ≤ `NEAR_DUP_WINDOW_MS` 且
+ *    文本重叠度 ≥ `NEAR_DUP_OVERLAP` → 视为同一条要点的两种措辞，保留较长的一条。
+ *    覆盖两种重复：同 ts 语义重复（措辞差异大）与跨秒近重复（分块边界拼接）。
  *
  * 幂等：对已归一的输入再跑一遍结果不变。
  */
@@ -188,27 +189,29 @@ export function normalizeBullets(
   // ③ 稳定排序
   const sorted = [...clamped].sort((a, b) => a.startMs - b.startMs);
 
-  // ④ 同刻去重：组内两两比对，文本高度重叠视为同一条要点的两种措辞，保留较长的一条
-  const byMs = new Map<number, SectionBullet[]>();
+  // ④ 滑动窗近重复去重：与已保留序列的最后一条比对（时间相邻 + 文本重叠 → 合并）
+  const kept: SectionBullet[] = [];
   for (const b of sorted) {
-    const group = byMs.get(b.startMs) ?? [];
-    const dupIdx = group.findIndex((x) => textOverlap(x.text, b.text) >= DUPLICATE_TEXT_THRESHOLD);
-    if (dupIdx >= 0) {
-      if (b.text.trim().length > group[dupIdx].text.trim().length) group[dupIdx] = b;
-    } else {
-      group.push(b);
+    const prev = kept[kept.length - 1];
+    if (
+      prev &&
+      Math.abs(b.startMs - prev.startMs) <= NEAR_DUP_WINDOW_MS &&
+      textOverlap(prev.text, b.text) >= NEAR_DUP_OVERLAP
+    ) {
+      // 近重复：保留较长的一条（信息更全）
+      if (b.text.trim().length > prev.text.trim().length) kept[kept.length - 1] = b;
+      continue;
     }
-    byMs.set(b.startMs, group);
+    kept.push(b);
   }
-  const deduped: SectionBullet[] = [];
-  for (const ms of [...byMs.keys()].sort((a, b) => a - b)) {
-    deduped.push(...byMs.get(ms)!);
-  }
-  return deduped;
+  return kept;
 }
 
-/** 同刻重复判定阈值（文本重叠度；见 textOverlap） */
-const DUPLICATE_TEXT_THRESHOLD = 0.8;
+/** 近重复判定窗口（毫秒）：时间相邻的条目才参与去重（避免误合并相隔较远的相似表述） */
+const NEAR_DUP_WINDOW_MS = 5_000;
+
+/** 近重复判定阈值（文本重叠度：字符集合交集 / 较小集合大小；对包含关系敏感） */
+const NEAR_DUP_OVERLAP = 0.6;
 
 /**
  * 文本重叠度（SPEC-18）：字符集合交集 / 较小集合的大小。

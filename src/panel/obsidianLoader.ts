@@ -39,6 +39,7 @@ import {
   upsertDomainTag,
   mocPath,
   playbackUrl,
+  sanitizeBroader,
   termNotePath,
   upsertIndexEntry,
   vaultPathsFor,
@@ -316,10 +317,17 @@ export async function saveVideoNoteToObsidian(args: {
   }
 
   // ---- SPEC-17：概念页（追加式合并；aliases 只增不删）----
+  // SPEC-19：broader 入库校验需要"已存在的概念名"（既有库 + 本批）；索引在此读一次，
+  // 后续索引写入复用同一份（概念条目在下方统一 upsert）
+  const file = await readIndex(cfg, fetchFn).catch(() => emptyIndexFile());
+  const knownConcepts = new Set<string>([
+    ...file.entries.filter((e) => e.category === 'concept' || e.category === 'term').map((e) => e.title),
+    ...concepts.map((c) => c.name),
+  ]);
   for (const concept of concepts) {
     // 笔记文件名（wikilink 目标——Obsidian 图谱由概念→笔记连线）
     const noteLink = paths.videoNote.split('/').pop()?.replace(/\.md$/, '') ?? '';
-    // SPEC-18：引用入库校验（禁 [00:00] 占位 + 窗口软校验）；被丢弃只记日志，不阻断概念页
+    // SPEC-18/19：引用入库校验（禁 [00:00] 占位 + 原文定位/降级）；被丢弃只记日志，不阻断概念页
     const verified = buildVerifiedReference({
       concept,
       videoTitle: args.meta.title,
@@ -332,7 +340,15 @@ export async function saveVideoNoteToObsidian(args: {
     if (verified.skipped) {
       console.warn(`[vsc] 概念「${concept.name}」引用被丢弃：${verified.skipped}`);
     }
+    if (verified.downgraded) {
+      console.warn(`[vsc] 概念「${concept.name}」引用未能逐字命中 raw，已降级为语境转述`);
+    }
     const ref = verified.reference;
+    // SPEC-19：broader 校验（自指/悬空 → 置空）
+    const broader = sanitizeBroader({ broader: concept.broader, selfName: concept.name, knownConcepts });
+    if (concept.broader.trim() && !broader) {
+      console.warn(`[vsc] 概念「${concept.name}」的上位概念「${concept.broader}」非法（自指/不存在），已置空`);
+    }
     const cPath = conceptNotePath(concept.name, cfg.rootDir);
     try {
       const existing = await getNote(cfg, fetchFn, cPath);
@@ -356,7 +372,7 @@ export async function saveVideoNoteToObsidian(args: {
           preferred: concept.name,
           aliases: concept.aliases,
           definition: concept.definition,
-          broader: concept.broader,
+          broader,
           domain,
           reference: ref,
         }),
@@ -370,7 +386,7 @@ export async function saveVideoNoteToObsidian(args: {
 
   // ---- 索引（机器检索入口）：视频笔记 entry 带 domain/entities；概念页 entry ----
   // SPEC-18：条目由共享构造函数产出（terms 过滤、sourceType 显式、预览统一截断）
-  const file = await readIndex(cfg, fetchFn);
+  // `file` 复用上方 SPEC-19 读入的同一份索引（概念条目在其上 upsert）
   const entityNames = concepts.map((c) => c.name);
   const entry = buildVideoNoteIndexEntry({
     path: videoNote,

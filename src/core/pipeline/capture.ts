@@ -18,7 +18,7 @@ import type {
   VideoMeta,
 } from '../../types';
 import { formatMmSs } from '../context/compiler';
-import { normalizeBullets } from './merge';
+import { normalizeBullets, textOverlap } from './merge';
 
 /** 笔记类型（frontmatter 的 type 字段） */
 export type NoteType = 'video-note' | 'term-card';
@@ -117,8 +117,11 @@ export function sanitizeFileName(name: string): string {
   // eslint-disable-next-line no-control-regex
   // 半角非法字符 + 控制字符 + 全角等价符（＊？：＂＜＞｜／＼）——
   // 全角冒号虽在 Windows 合法，但网盘同步 / zip / URL 编码下仍有隐患，统一替换（SPEC-18 18.5）
-  const cleaned = name.replace(/[/\\:*?"<>|＊？：＂＜＞｜／＼\u0000-\u001f]/g, '_').trim();
-  const clipped = cleaned.slice(0, FILE_NAME_MAX).trim();
+  let cleaned = name.replace(/[/\\:*?"<>|＊？：＂＜＞｜／＼\u0000-\u001f]/g, '_').trim();
+  // SPEC-19 N-6：归一 `._` 序列、去首尾点号/下划线/空白（B 站标题常带尾随点号，拼接后成
+  // `._` 观感差；`._xxx` 在 macOS 会被当 AppleDouble 隐藏文件）
+  cleaned = cleaned.replace(/\._+/g, '_').replace(/^[.\s_]+/, '').replace(/[.\s_]+$/, '');
+  const clipped = cleaned.slice(0, FILE_NAME_MAX).replace(/[.\s_]+$/, '');
   return clipped.length > 0 ? clipped : '_';
 }
 
@@ -186,17 +189,18 @@ export function truncatePreview(text: string): string {
 }
 
 /**
- * terms 噪音过滤（SPEC-18 18.5）：模型抽取"本章技术术语"时会把命令、文件名、
- * 代码标识符一并带回（`npm install` / `main.js` / `counter` / `import` 等），
- * 这些词条入索引后会稀释术语匹配、拉低检索信噪比。
+ * terms 噪音过滤（SPEC-18 18.5 / SPEC-19 19.3）：模型抽取"本章技术术语"时会把
+ * 命令、文件名、代码标识符、操作细节一并带回（`npm install` / `main.js` / `counter`
+ * / `记事本` / `Ctrl+S` 等），这些词条入索引后会稀释术语匹配、拉低检索信噪比。
  *
  * 这里做确定性过滤（只删不改，保留原词）：
  * - 长度 < 2；
  * - **命令形短语**：全 ASCII 且含空格（`npm install`、`vue create`）；
  * - **文件名/代码符号**：带常见扩展名、或以 `$ @ #` 开头（`main.js`、`$store.state`）；
- * - **停用词**：英文小写归一后命中表内（`import` / `export` / `counter` 等语法与示例词）。
+ * - **快捷键/盘符**：`Ctrl+S`、`Shift+Enter`、`E盘`（操作细节，不是概念）；
+ * - **停用词**：英文小写归一或中文精确命中表内（`import` / `记事本` / `输入法` 等）。
  *
- * 与 `mapState` / `router-view` / `createStore` 这类真实 API 名不冲突（它们不在表内）。
+ * 与 `mapState` / `router-view` / `createStore` / `HTML` 这类真实 API 与概念名不冲突。
  */
 export function filterTerms(terms: readonly string[]): string[] {
   const out: string[] = [];
@@ -206,7 +210,9 @@ export function filterTerms(terms: readonly string[]): string[] {
     if (/^[A-Za-z0-9\s.\-_]+$/.test(t) && /\s/.test(t)) continue; // 命令形短语
     if (/\.(js|ts|jsx|tsx|vue|json|css|html|md|mjs|cjs)$/i.test(t)) continue; // 文件名
     if (/^[$@#]/.test(t)) continue; // 代码符号
-    if (TERM_STOPWORDS.has(t.toLowerCase())) continue;
+    if (/^(?:ctrl|alt|shift|cmd|win|fn)\s*\+\s*\S+$/i.test(t)) continue; // 快捷键
+    if (/^[a-z]:盘$/i.test(t) || /^[a-z]盘$/i.test(t)) continue; // 盘符（E盘/C盘）
+    if (TERM_STOPWORDS.has(t.toLowerCase()) || TERM_STOPWORDS_ZH.has(t)) continue;
     if (!out.includes(t)) out.push(t);
   }
   return out;
@@ -220,6 +226,15 @@ const TERM_STOPWORDS = new Set([
   'item', 'index', 'src', 'app', 'main', 'counter', 'hello', 'world', 'helloworld', 'foo', 'bar',
   'click', 'input', 'output', 'return', 'function', 'class', 'const', 'let', 'var', 'string',
   'number', 'boolean', 'object', 'array', 'null', 'undefined', 'true', 'false',
+]);
+
+/** terms 停用词（中文；操作细节与软件名，不是知识概念） */
+const TERM_STOPWORDS_ZH = new Set([
+  '记事本', '文本文档', '输入法', '文件管理器', '资源管理器', '浏览器', '命令行', '终端',
+  '桌面', '窗口', '菜单', '右键', '左键', '单击', '双击', '点击', '拖拽', '滚动条',
+  '快捷键', '热键', '按钮', '图标', '标签页', '工具栏', '状态栏', '地址栏', '标题栏',
+  '新建', '打开', '保存', '关闭', '退出', '复制', '粘贴', '剪切', '删除', '重命名',
+  '刷新', '下载', '上传', '安装', '卸载', '设置', '选项', '属性', '默认', '示例', '演示',
 ]);
 
 /**
@@ -657,16 +672,93 @@ export function conceptNotePath(preferred: string, rootDir: string): string {
 }
 
 /**
- * 引用入库校验（SPEC-18）：在 conceptReferenceBlock 之前判定该引用能否入库。
+ * 引文原文定位（SPEC-19 N-1）：在提示锚点附近的 raw 行里找出与引文最贴合的
+ * 连续行段，返回**逐字原文**与**命中行的时间戳**。
  *
- * 规则（宁缺毋滥，跳过不阻断整体入库）：
- * - 锚点非法（`anchorSec ≤ 0` 或非有限数）→ **不产出该引用**。禁止 `[00:00]` 静默占位：
- *   占位会让"点回原文"落空，比缺一条引用更伤可信度；
- * - `verbatim`（逐字原句）：窗口软校验覆盖率低于 `QUOTE_MIN_COVERAGE` → 丢弃
- *   （锚点附近没在讲这件事 = 锚点错或语境编造）；
- * - `paraphrase`（语境转述）：不做覆盖率硬校验（转述本就不是逐字），但仍要求锚点合法。
+ * 存在的意义：`excerptKind: verbatim` 的引文不能信模型写的文本——真机核验显示
+ * 模型会把改写句标成"原句"（19/19 失实），还会批量赋锚（多个概念共用同一时间点）。
+ * 改为**代码从 raw 截取**：引文 100% 是原文，锚点 = 命中行时间戳，各概念自然落到各自行。
  *
- * @returns `reference` 为可入库的引用块（可能为空串）；`skipped` 为丢弃原因（供日志）
+ * @returns 命中 → `{ text: 逐字原文, startMs: 命中行时间戳 }`；未命中 → null（调用方降级 paraphrase）
+ */
+export function locateQuoteInRaw(args: {
+  /** 模型给的引文（用于定位，不直接使用） */
+  excerpt: string;
+  cues: ReadonlyArray<{ startMs: number; text: string }>;
+  /** 模型给的锚点提示（秒）；允许不准，只作搜索中心 */
+  hintSec: number;
+  /** 搜索窗口（秒，前后各取）；默认 60 */
+  windowSec?: number;
+  /** 最多拼接的连续行数；默认 3 */
+  maxLines?: number;
+}): { text: string; startMs: number } | null {
+  const windowSec = args.windowSec ?? 60;
+  const maxLines = args.maxLines ?? 3;
+  const hintMs = Math.max(0, args.hintSec) * 1000;
+  const window = [...args.cues]
+    .filter((c) => c.startMs >= hintMs - windowSec * 1000 && c.startMs <= hintMs + windowSec * 1000)
+    .sort((a, b) => a.startMs - b.startMs);
+  if (window.length === 0) return null;
+
+  let best: { text: string; startMs: number; score: number; quoteCover: number; sourceCover: number } | null = null;
+  // 对每个起点生成 1..maxLines 行的多个候选（不是只生成拼满的那一个）——
+  // 否则多行拼接会压过真正贴合的单行（真机实测 3 行拼接得高分、引文带进无关内容）
+  for (let i = 0; i < window.length; i++) {
+    for (let n = 1; n <= maxLines && i + n <= window.length; n++) {
+      const joined = window
+        .slice(i, i + n)
+        .map((c) => (c.text ?? '').trim())
+        .filter((x) => x.length > 0)
+        .join('');
+      if (joined.length === 0) continue;
+      // 双向覆盖率（真机核验得出的判据，两个方向缺一不可）：
+      // - quoteCover：引文字符被原文覆盖的比例——低 = 引文是改写/编造，不能叫"原句"；
+      // - sourceCover：原文字符被引文覆盖的比例——低 = 原文远长于引文（短碎片吞长改写句、
+      //   多行拼接带进无关内容），同样不能当命中。
+      // 只用其一会误判：'就是加强论据'(6) vs '加强论据是对论据加强'(10) 单向覆盖 0.83 看似高，
+      // 实为改写句；而真命中 '加强论点呢是对论点进行支持'(13) vs '加强论点是对论点支持'(10)
+      // 单向也是 0.84——必须靠 sourceCover(0.73 vs 0.83) 与 quoteCover(1.0 vs 0.83) 分开。
+      const m = coverageScores(joined, args.excerpt);
+      const score = m.quoteCover * m.sourceCover;
+      if (!best || score > best.score) {
+        best = { text: joined, startMs: window[i].startMs, score, ...m };
+      }
+    }
+  }
+  return best && best.quoteCover >= VERBATIM_QUOTE_COVER && best.sourceCover >= VERBATIM_SOURCE_COVER
+    ? { text: best.text, startMs: best.startMs }
+    : null;
+}
+
+/** 字符集合双向覆盖率：quoteCover = |A∩B|/|B|（引文被覆盖），sourceCover = |A∩B|/|A|（原文被覆盖） */
+function coverageScores(source: string, quote: string): { quoteCover: number; sourceCover: number } {
+  const sa = new Set(source.replace(/\s+/g, ''));
+  const sb = new Set(quote.replace(/\s+/g, ''));
+  if (sa.size === 0 || sb.size === 0) return { quoteCover: 0, sourceCover: 0 };
+  let inter = 0;
+  for (const ch of sb) if (sa.has(ch)) inter += 1;
+  return { quoteCover: inter / sb.size, sourceCover: inter / sa.size };
+}
+
+/** 引文字符被原文覆盖的最低比例（低于即视为改写/编造） */
+export const VERBATIM_QUOTE_COVER = 0.85;
+
+/** 原文字符被引文覆盖的最低比例（低于即视为短碎片吞长句 / 多行拼接冗余） */
+export const VERBATIM_SOURCE_COVER = 0.6;
+
+/**
+ * 引用入库校验（SPEC-18/19）：在 conceptReferenceBlock 之前判定该引用能否入库、以何种形态入库。
+ *
+ * **诚实性优先**（SPEC-19 N-1）：
+ * - 标 `verbatim` 的引文**由代码从 raw 截取**（`locateQuoteInRaw`），模型写的文本只用于定位；
+ *   命中 → 引文 = 逐字原文、锚点 = 命中行时间戳（根治批量赋锚）；
+ * - 定位不到（改写句 / 锚点偏离 / 无 raw 可查）→ **强制降级为 paraphrase**（去引号、标"转述"），
+ *   绝不保留假"原句"；
+ * - 标 `paraphrase` 的引文原样使用，不加引号并标注。
+ *
+ * 锚点非法（`anchorSec ≤ 0`）→ 不产出该引用（禁止 `[00:00]` 占位）。
+ *
+ * @returns `reference` 为可入库的引用块（可能为空串）；`skipped` 为丢弃原因；`downgraded` 标记被降级
  */
 export function buildVerifiedReference(args: {
   concept: { anchorSec: number; sourceExcerpt: string; excerptKind?: 'verbatim' | 'paraphrase' };
@@ -674,20 +766,48 @@ export function buildVerifiedReference(args: {
   noteLink: string;
   sourceType: 'raw' | 'user-note';
   playbackUrl: string;
-  /** raw 原料层字幕（窗口软校验素材；不传则跳过覆盖率校验，只做锚点合法性） */
+  /** raw 原料层字幕（原文定位素材）；不传则 verbatim 一律降级 paraphrase（无法验证就不敢叫原句） */
   cues?: ReadonlyArray<{ startMs: number; text: string }>;
-}): { reference: string; skipped?: string } {
+}): { reference: string; skipped?: string; downgraded?: boolean } {
   const { concept } = args;
   const anchorValid = Number.isFinite(concept.anchorSec) && concept.anchorSec > 0;
   if (!anchorValid) {
     return { reference: '', skipped: 'anchor-missing（锚点缺失/为 0，拒绝 [00:00] 占位）' };
   }
   const kind = concept.excerptKind ?? 'verbatim';
-  if (kind === 'verbatim' && args.cues && args.cues.length > 0) {
-    const coverage = quoteWindowCoverage(concept.sourceExcerpt, args.cues, concept.anchorSec);
-    if (coverage < QUOTE_MIN_COVERAGE) {
-      return { reference: '', skipped: `low-coverage（覆盖率 ${coverage.toFixed(2)} < ${QUOTE_MIN_COVERAGE}）` };
-    }
+
+  // 转述：原样使用，不加引号
+  if (kind === 'paraphrase') {
+    return {
+      reference: conceptReferenceBlock({
+        videoTitle: args.videoTitle,
+        noteLink: args.noteLink,
+        anchorSec: concept.anchorSec,
+        sourceExcerpt: concept.sourceExcerpt,
+        sourceType: args.sourceType,
+        playbackUrl: args.playbackUrl,
+        excerptKind: 'paraphrase',
+      }),
+    };
+  }
+
+  // 原句：代码从 raw 截取；定位不到 → 降级转述
+  const hit =
+    args.cues && args.cues.length > 0
+      ? locateQuoteInRaw({ excerpt: concept.sourceExcerpt, cues: args.cues, hintSec: concept.anchorSec })
+      : null;
+  if (hit) {
+    return {
+      reference: conceptReferenceBlock({
+        videoTitle: args.videoTitle,
+        noteLink: args.noteLink,
+        anchorSec: Math.round(hit.startMs / 1000),
+        sourceExcerpt: hit.text,
+        sourceType: args.sourceType,
+        playbackUrl: args.playbackUrl,
+        excerptKind: 'verbatim',
+      }),
+    };
   }
   return {
     reference: conceptReferenceBlock({
@@ -697,13 +817,11 @@ export function buildVerifiedReference(args: {
       sourceExcerpt: concept.sourceExcerpt,
       sourceType: args.sourceType,
       playbackUrl: args.playbackUrl,
-      excerptKind: kind,
+      excerptKind: 'paraphrase',
     }),
+    downgraded: true,
   };
 }
-
-/** 引文窗口软校验阈值（字符 2-gram 覆盖率；可调，宁缺毋滥） */
-export const QUOTE_MIN_COVERAGE = 0.35;
 
 /** 概念页引用记录块（"以什么身份连"：带语境 + 回放锚点 + 来源标注） */
 export function conceptReferenceBlock(args: {
@@ -737,38 +855,24 @@ export function conceptReferenceBlock(args: {
 }
 
 /**
- * 引文窗口软校验（SPEC-18）：取锚点前后窗口内的字幕原文，与引文做字符 2-gram 覆盖率。
+ * broader 入库校验（SPEC-19 N-2）：上位概念必须指向**存在的概念页**且**不得是自身**，
+ * 否则置空（自指环 / 悬空链接会让概念图不可用——真机核验发现 1 自指 + 1 悬空）。
  *
- * **不做"逐字命中"硬校验**——raw 是 ASR 滚动字幕碎片（单条 8-12 字、断句错、含误识），
- * 逐字引用必然不可读或 100% 误报。这里只判"锚点附近是否真的在讲这件事"，
- * 覆盖率低于阈值说明锚点与语境对不上（如占位/编造），调用方据此丢弃该引用。
+ * 只做机械可判定项：存在性 + 非自指。语义层级（是否母题而非同级兄弟）由 prompt 引导。
  *
- * @returns 0..1，窗口内无原文时返回 0
+ * @returns 合法的 broader；非法（空/自指/目标不存在）返回 ''
  */
-export function quoteWindowCoverage(
-  excerpt: string,
-  cues: ReadonlyArray<{ startMs: number; text: string }>,
-  anchorSec: number,
-  windowBeforeSec = 30,
-  windowAfterSec = 45,
-): number {
-  const grams = (s: string): Set<string> => {
-    const flat = s.replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '');
-    const out = new Set<string>();
-    for (let i = 0; i + 1 < flat.length; i++) out.add(flat.slice(i, i + 2));
-    return out;
-  };
-  const anchorMs = Math.max(0, anchorSec) * 1000;
-  const window = cues
-    .filter((c) => c.startMs >= anchorMs - windowBeforeSec * 1000 && c.startMs <= anchorMs + windowAfterSec * 1000)
-    .map((c) => c.text ?? '')
-    .join('');
-  const gExcerpt = grams(excerpt);
-  if (gExcerpt.size === 0) return 0;
-  const gWindow = grams(window);
-  let hit = 0;
-  for (const g of gExcerpt) if (gWindow.has(g)) hit += 1;
-  return hit / gExcerpt.size;
+export function sanitizeBroader(args: {
+  broader: string;
+  selfName: string;
+  /** 已存在的概念名集合（既有库 + 本批新建，含自身也无妨） */
+  knownConcepts: ReadonlySet<string>;
+}): string {
+  const b = (args.broader ?? '').trim();
+  if (b.length === 0) return '';
+  if (b === args.selfName.trim()) return '';
+  if (!args.knownConcepts.has(b)) return '';
+  return b;
 }
 
 /** 新建概念页（五字段 frontmatter + 划界定义待核验 callout + 首条引用记录） */
@@ -897,18 +1001,20 @@ export function buildVideoNoteMarkdown(args: BuildVideoNoteArgs): {
       lines.push(`- ${timestampLink(meta, bullet.startMs)} ${bullet.text}`);
     }
     if (s.terms.length > 0) {
-      lines.push('', `术语：${s.terms.join(' · ')}`);
+      // SPEC-19：正文「术语：」行同样过噪音过滤（与索引 terms 同口径）
+      const secTerms = filterTerms(s.terms);
+      if (secTerms.length > 0) lines.push('', `术语：${secTerms.join(' · ')}`);
     }
     return lines.join('\n');
   });
-  const terms = dedupeStrings(sections.flatMap((s) => s.terms));
+  const terms = dedupeStrings(filterTerms(sections.flatMap((s) => s.terms)));
   const firstSummary = sections.length > 0 ? sections[0].summary : '';
   const previewRaw = [firstSummary, terms.length > 0 ? `术语：${terms.join(' · ')}` : '']
     .filter((x) => x.length > 0)
     .join(' ');
   const summaryPreview = truncatePreview(previewRaw || meta.title);
   const markdown = withFrontmatter(
-    buildFrontmatter(meta, 'video-note', now, contentTagsFor(sections)),
+    buildFrontmatter(meta, 'video-note', now, filterTerms(contentTagsFor(sections))),
     [...head, ...body].join('\n'),
   );
   return { markdown, terms, summaryPreview };
