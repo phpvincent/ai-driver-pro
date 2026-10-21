@@ -18,6 +18,7 @@ import type {
   VideoMeta,
 } from '../../types';
 import { formatMmSs } from '../context/compiler';
+import { normalizeBullets } from './merge';
 
 /** 笔记类型（frontmatter 的 type 字段） */
 export type NoteType = 'video-note' | 'term-card';
@@ -50,6 +51,11 @@ export const DEFAULT_DOMAIN = '通用';
 
 /** 机器索引（JSON，检索读）与人类索引（MOC，Obsidian 浏览）的相对路径 */
 export const INDEX_JSON_NAME = '_meta/index.json';
+/**
+ * 人类可读全局索引（SPEC-06 遗留）：**当前未接线写盘**——人类目录已由
+ * `索引/MOC-{领域}.md`（见 `mocPath`）承担。保留此常量与 `buildIndexMarkdown`
+ * 仅供单元测试与将来"全局索引"场景复用；AGENTS.md 契约不再承诺 `_索引.md`。
+ */
 export const INDEX_MD_NAME = '_索引.md';
 
 /** frontmatter 固定字段：来源与标签（TECH-DESIGN §4.7） */
@@ -106,10 +112,12 @@ export function yamlValue(value: string): string {
   return value;
 }
 
-/** 文件名非法字符（`/\?:*"><|` 与控制字符）替换为 `_`；中文与空格保留；长度截断 60 */
+/** 文件名非法字符（`/\?:*"><|`、控制字符、全角等价符）替换为 `_`；中文与空格保留；长度截断 60 */
 export function sanitizeFileName(name: string): string {
   // eslint-disable-next-line no-control-regex
-  const cleaned = name.replace(/[/\\:*?"<>|\u0000-\u001f]/g, '_').trim();
+  // 半角非法字符 + 控制字符 + 全角等价符（＊？：＂＜＞｜／＼）——
+  // 全角冒号虽在 Windows 合法，但网盘同步 / zip / URL 编码下仍有隐患，统一替换（SPEC-18 18.5）
+  const cleaned = name.replace(/[/\\:*?"<>|＊？：＂＜＞｜／＼\u0000-\u001f]/g, '_').trim();
   const clipped = cleaned.slice(0, FILE_NAME_MAX).trim();
   return clipped.length > 0 ? clipped : '_';
 }
@@ -175,6 +183,97 @@ export function truncatePreview(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   if (flat.length <= SUMMARY_PREVIEW_MAX) return flat;
   return `${flat.slice(0, SUMMARY_PREVIEW_MAX - 1)}…`;
+}
+
+/**
+ * terms 噪音过滤（SPEC-18 18.5）：模型抽取"本章技术术语"时会把命令、文件名、
+ * 代码标识符一并带回（`npm install` / `main.js` / `counter` / `import` 等），
+ * 这些词条入索引后会稀释术语匹配、拉低检索信噪比。
+ *
+ * 这里做确定性过滤（只删不改，保留原词）：
+ * - 长度 < 2；
+ * - **命令形短语**：全 ASCII 且含空格（`npm install`、`vue create`）；
+ * - **文件名/代码符号**：带常见扩展名、或以 `$ @ #` 开头（`main.js`、`$store.state`）；
+ * - **停用词**：英文小写归一后命中表内（`import` / `export` / `counter` 等语法与示例词）。
+ *
+ * 与 `mapState` / `router-view` / `createStore` 这类真实 API 名不冲突（它们不在表内）。
+ */
+export function filterTerms(terms: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of terms) {
+    const t = (raw ?? '').trim();
+    if (t.length < 2) continue;
+    if (/^[A-Za-z0-9\s.\-_]+$/.test(t) && /\s/.test(t)) continue; // 命令形短语
+    if (/\.(js|ts|jsx|tsx|vue|json|css|html|md|mjs|cjs)$/i.test(t)) continue; // 文件名
+    if (/^[$@#]/.test(t)) continue; // 代码符号
+    if (TERM_STOPWORDS.has(t.toLowerCase())) continue;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** terms 停用词（英文小写归一；只删噪音，不删真实 API 名） */
+const TERM_STOPWORDS = new Set([
+  'npm', 'install', 'import', 'export', 'create', 'run', 'build', 'test', 'dev', 'start',
+  'demo', 'example', 'project', 'folder', 'file', 'code', 'text', 'line', 'node', 'package',
+  'version', 'config', 'setup', 'script', 'style', 'name', 'value', 'key', 'page', 'list',
+  'item', 'index', 'src', 'app', 'main', 'counter', 'hello', 'world', 'helloworld', 'foo', 'bar',
+  'click', 'input', 'output', 'return', 'function', 'class', 'const', 'let', 'var', 'string',
+  'number', 'boolean', 'object', 'array', 'null', 'undefined', 'true', 'false',
+]);
+
+/**
+ * 索引条目统一构造（SPEC-18 18.6）：视频笔记与概念页共用同一套字段口径——
+ * terms 一律过 `filterTerms`、summaryPreview 一律 `truncatePreview`、
+ * `sourceType` 一律显式写入（不再缺省），tags/domain 由调用方传入规范值。
+ */
+export function buildVideoNoteIndexEntry(args: {
+  path: string;
+  title: string;
+  terms: readonly string[];
+  summaryPreview: string;
+  videoId: string;
+  domain: string;
+  entities?: readonly string[];
+  now?: Date;
+}): KnowledgeIndexEntry {
+  return {
+    path: args.path,
+    title: args.title,
+    category: 'video-note',
+    tags: ['ai', '视频笔记'],
+    terms: filterTerms(args.terms),
+    summaryPreview: truncatePreview(args.summaryPreview),
+    videoId: args.videoId,
+    updatedAt: (args.now ?? new Date()).toISOString(),
+    domain: args.domain,
+    sourceType: 'ai-distill',
+    ...(args.entities && args.entities.length > 0 ? { entities: [...args.entities] } : {}),
+  };
+}
+
+/** 概念页索引条目（SPEC-18 18.6）：与视频笔记同一口径，sourceType 显式 */
+export function buildConceptIndexEntry(args: {
+  path: string;
+  name: string;
+  aliases: readonly string[];
+  definition: string;
+  domain: string;
+  sourceType: 'ai-distill' | 'user-note';
+  now?: Date;
+}): KnowledgeIndexEntry {
+  return {
+    path: args.path,
+    title: args.name,
+    category: 'concept',
+    tags: ['ai', '概念', args.domain],
+    terms: filterTerms([args.name, ...args.aliases]),
+    summaryPreview: truncatePreview(args.definition),
+    updatedAt: (args.now ?? new Date()).toISOString(),
+    domain: args.domain,
+    sourceType: args.sourceType,
+    entities: [args.name],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -348,7 +447,7 @@ function formatClock(ms: number): string {
  * 扩展是权威维护者——存入时**无则创建、有则覆盖为最新版**（用户决策）。
  * 脱离扩展的其他 agent 读库时按此规则行事。
  */
-export const AGENTS_MD = `# AGENTS.md · 知识库宪法（v1）
+export const AGENTS_MD = `# AGENTS.md · 知识库宪法（v2）
 
 > 本文件是知识库的"员工手册"：入库蒸馏的规则宪法 + 检索消费的行为准则。
 > 由「视频学习副驾」扩展维护（每次存入覆盖为最新版）；其他 Agent 读写本库时请遵循。
@@ -358,25 +457,42 @@ export const AGENTS_MD = `# AGENTS.md · 知识库宪法（v1）
 | 目录 | 内容 | 写入规则 |
 |------|------|----------|
 | \`raw/{领域}/{课程}/\` | 字幕原文（行级 [mm:ss](回放URL) 锚点） | **只读**：入库写一次，之后任何流程不得改写 |
-| \`视频笔记/{领域}/{课程}/\` | 视频笔记（章节 ## 蒸馏 + \`%% vsc:notes %%\` 用户笔记区块） | 存入时合并刷新；区块外手写内容保留 |
-| \`术语/{领域}/\` | 概念页（术语表节点，五字段 frontmatter） | **追加式合并**：引用记录与 aliases 只增不删 |
-| \`问答/{领域}/{课程}/\` | QA 沉淀（用户手动存入） | 只追加 |
-| \`索引/\` | 每领域一张 MOC（人类目录） | 存入时重建该领域页 |
+| \`笔记/{领域}/{课程}/\` | 视频笔记（章节 ## 蒸馏 + \`%% vsc:notes %%\` 用户笔记区块） | 存入时合并刷新；区块外手写内容保留 |
+| \`概念/{概念名}.md\` | 概念页（**全局唯一，不分领域**；同名不同语境 = 两个概念，靠名字带语境区分） | **追加式合并**：引用记录与 aliases 只增不删 |
+| \`索引/MOC-{领域}.md\` | 每领域一张 MOC（人类目录） | 存入时重建该领域页 |
 | \`_meta/index.json\` | 机器索引（检索入口；只索引蒸馏层，raw 不进） | 存入时增量合并 |
+| \`AGENTS.md\` | 本文件 | 扩展权威维护：存入时覆盖为最新版 |
 
 \`{领域}\` 由蒸馏判定（逻辑学/编程/考研数学…），目录随新领域自动生长；未知回落 \`通用\`。
+领域名用下划线复合（如 \`公考_判断推理\`）；**标签**用斜杠嵌套（\`#公考/判断推理\`，Obsidian 层级折叠）——
+\`domain\` 字段取下划线形式（规范键），\`tags\` 取斜杠形式（展示），两者同源不同表示。
+
+> 规划中（暂未实现，勿按此寻址）：\`问答/{领域}/{课程}/\`（QA 沉淀）。
+
+## A2. 字段字典（产物中可见的口径）
+
+| 字段 | 口径 |
+|------|------|
+| \`## mm:ss-mm:ss 标题（N 分）\` 的 N | 0-100 **综合打分**，代码计算：新知识率 45% + 术语密度 25% + 章节重要性 30%。用于密度徽标分档，不是重要度排序 |
+| 概念页 frontmatter | 8 字段：\`title / preferred / aliases / broader / domains / type / tags / date\` |
+| 引用记录条目 | \`### [[笔记]] [mm:ss](url)\` + \`source:\` + \`语境性质:\` + \`概念语境：\` |
+| \`source:\`（引用记录） | \`raw\`（原文溯源）\| \`user-note\`（用户批注，已核验） |
+| \`sourceType:\`（索引条目） | \`ai-distill\`（AI 蒸馏，待核验）\| \`user-note\`（用户批注，已核验·检索加权） |
 
 ## B. 蒸馏规则（入库时强制执行）
 
 1. **原料只读**：raw 只转录不加工；蒸馏页结论句尾必须带 \`[mm:ss](回放URL)\` 溯源锚点，一路点回原文。
 2. **强制 ## 章节结构**：蒸馏页（视频笔记/概念页）正文必须用 \`##\` 二级标题分节——天然语义分割，任何检索方式都受益。
 3. **术语归一（可逆性原则）**：蒸馏产出的每个概念必须落位到概念页（新建或合并到既有），不得凭空自造表述；概念名 = frontmatter \`preferred\`（文件名即规范名）。
-4. **aliases 只增不删**：同一概念的不同表述追加进 aliases；删除别名会毁掉历史条目的可检索性。
+4. **aliases 只增不删**：同一概念的不同表述（含中英对照、常见缩写）追加进 aliases；删除别名会毁掉历史条目的可检索性。
 5. **定义是划界不是解释**：概念页定义须区分邻近概念，不是科普。
-6. **引用带身份（"以什么身份连"）**：概念页引用记录不只写"谁提到谁"，必须带**原句语境**（blockquote + 回放锚点）——同一概念在不同视频中的角色决定检索跳转方向。
-7. **来源标注**：\`source: raw\`（AI 蒸馏，待核验）vs \`source: user-note\`（用户批注，已核验）；两者冲突时**以用户笔记为准**并在概念页标注分歧。
+6. **引用带身份（"以什么身份连"）**：概念页引用记录不只写"谁提到谁"，必须带**语境**（blockquote + 回放锚点）——同一概念在不同视频中的角色决定检索跳转方向。
+   - **逐字原句**（\`语境性质：原句\`）：直接取自 raw，加引号渲染；
+   - **语境转述**（\`语境性质：转述\`）：ASR 碎片无法逐字时的忠实转述，**不加引号**并显式标注——引号只留给逐字原句。
+   - **锚点必须有效**：取不到锚点就不写这条引用，**禁止 \`[00:00]\` 占位**（占位比缺条目更伤可信度）。
+7. **来源标注**：引用记录的 \`source:\` 与索引条目的 \`sourceType:\` 见 A2 字段字典；AI 蒸馏与用户批注冲突时**以用户笔记为准**并在概念页标注分歧。
 8. **用户笔记避让**：\`%% vsc:notes:start … %%\` 区块是用户手写保险区，AI 永不进入；讨论串中用户追问 = 用户批注（加权），助教回答 = AI 生成（待核验）。
-9. **AI 产出可辨识**：AI 蒸馏的定义/要点用 \`> [!note] AI 蒸馏 · 待核验\` callout；人改写过的段落自动免标（追加式合并不触碰改写段）。
+9. **AI 产出可辨识**：AI 蒸馏的笔记与概念页定义/要点用 \`> [!note] AI 蒸馏 · 待核验\` callout；人改写过的段落自动免标（追加式合并不触碰改写段）。
 
 ## C. 检索规则（消费本库时遵循）
 
@@ -386,7 +502,13 @@ export const AGENTS_MD = `# AGENTS.md · 知识库宪法（v1）
 4. **related 关联链**：命中笔记时把其 frontmatter 涉及的概念页一并检查——一条关联链抵三次重搜。
 5. **加权**：\`sourceType: user-note\`（用户批注）权重高于 \`ai-distill\`；raw 不参与检索（只做溯源）。
 6. **待核验内容如实标注**：引用未核验的 AI 蒸馏时保持 callout 标记可见，不冒充已认定知识。
+
+## D. 变更协议
+
+schema / 目录 / 字段口径变更时，**必须同步本文件**并在 \`版本记录.md\` 留痕；未同步的变更视为无效。
+本文件由扩展覆盖维护——手写内容会在下次存入时被覆盖，自定义规则请写进 \`版本记录.md\` 或单独文档。
 `;
+
 
 /** AGENTS.md 在 vault 根目录的落盘路径 */
 export const AGENTS_MD_PATH = 'AGENTS.md';
@@ -532,7 +654,56 @@ export function conceptNotePath(preferred: string, rootDir: string): string {
   return joinVaultPath(rootDir, NOTE_DIR.term, `${sanitizeFileName(preferred)}.md`);
 }
 
-/** 概念页引用记录块（"以什么身份连"：带原句语境 + 回放锚点 + 来源标注） */
+/**
+ * 引用入库校验（SPEC-18）：在 conceptReferenceBlock 之前判定该引用能否入库。
+ *
+ * 规则（宁缺毋滥，跳过不阻断整体入库）：
+ * - 锚点非法（`anchorSec ≤ 0` 或非有限数）→ **不产出该引用**。禁止 `[00:00]` 静默占位：
+ *   占位会让"点回原文"落空，比缺一条引用更伤可信度；
+ * - `verbatim`（逐字原句）：窗口软校验覆盖率低于 `QUOTE_MIN_COVERAGE` → 丢弃
+ *   （锚点附近没在讲这件事 = 锚点错或语境编造）；
+ * - `paraphrase`（语境转述）：不做覆盖率硬校验（转述本就不是逐字），但仍要求锚点合法。
+ *
+ * @returns `reference` 为可入库的引用块（可能为空串）；`skipped` 为丢弃原因（供日志）
+ */
+export function buildVerifiedReference(args: {
+  concept: { anchorSec: number; sourceExcerpt: string; excerptKind?: 'verbatim' | 'paraphrase' };
+  videoTitle: string;
+  noteLink: string;
+  sourceType: 'raw' | 'user-note';
+  playbackUrl: string;
+  /** raw 原料层字幕（窗口软校验素材；不传则跳过覆盖率校验，只做锚点合法性） */
+  cues?: ReadonlyArray<{ startMs: number; text: string }>;
+}): { reference: string; skipped?: string } {
+  const { concept } = args;
+  const anchorValid = Number.isFinite(concept.anchorSec) && concept.anchorSec > 0;
+  if (!anchorValid) {
+    return { reference: '', skipped: 'anchor-missing（锚点缺失/为 0，拒绝 [00:00] 占位）' };
+  }
+  const kind = concept.excerptKind ?? 'verbatim';
+  if (kind === 'verbatim' && args.cues && args.cues.length > 0) {
+    const coverage = quoteWindowCoverage(concept.sourceExcerpt, args.cues, concept.anchorSec);
+    if (coverage < QUOTE_MIN_COVERAGE) {
+      return { reference: '', skipped: `low-coverage（覆盖率 ${coverage.toFixed(2)} < ${QUOTE_MIN_COVERAGE}）` };
+    }
+  }
+  return {
+    reference: conceptReferenceBlock({
+      videoTitle: args.videoTitle,
+      noteLink: args.noteLink,
+      anchorSec: concept.anchorSec,
+      sourceExcerpt: concept.sourceExcerpt,
+      sourceType: args.sourceType,
+      playbackUrl: args.playbackUrl,
+      excerptKind: kind,
+    }),
+  };
+}
+
+/** 引文窗口软校验阈值（字符 2-gram 覆盖率；可调，宁缺毋滥） */
+export const QUOTE_MIN_COVERAGE = 0.35;
+
+/** 概念页引用记录块（"以什么身份连"：带语境 + 回放锚点 + 来源标注） */
 export function conceptReferenceBlock(args: {
   videoTitle: string;
   /** 来源笔记文件名（不含 .md）；wikilink 目标——Obsidian 图谱由此连线（概念 → 笔记 边） */
@@ -541,17 +712,61 @@ export function conceptReferenceBlock(args: {
   sourceExcerpt: string;
   sourceType: 'raw' | 'user-note';
   playbackUrl: string;
+  /**
+   * SPEC-18：语境性质。`verbatim`（缺省）= 逐字原句，加引号渲染；
+   * `paraphrase` = 语境转述，**不加引号**并标注——引号只留给逐字原句，
+   * 转述必须显式标识，否则会让读者误以为点回去能看到同一句话。
+   */
+  excerptKind?: 'verbatim' | 'paraphrase';
 }): string {
   const ts = formatClock(args.anchorSec * 1000);
   const link = args.playbackUrl ? `[${ts}](${args.playbackUrl})` : `[${ts}]`;
+  const kind = args.excerptKind ?? 'verbatim';
+  const quoted = kind === 'paraphrase' ? `> （语境转述）${args.sourceExcerpt}` : `> "${args.sourceExcerpt}"`;
   return [
     `### [[${args.noteLink}|${args.videoTitle}]] ${link}`,
     `- source: ${args.sourceType}`,
+    kind === 'paraphrase' ? `- 语境性质：转述（非逐字原句）` : `- 语境性质：原句`,
     `- 概念语境：`,
     '',
-    `> "${args.sourceExcerpt}"`,
+    quoted,
     '',
   ].join('\n');
+}
+
+/**
+ * 引文窗口软校验（SPEC-18）：取锚点前后窗口内的字幕原文，与引文做字符 2-gram 覆盖率。
+ *
+ * **不做"逐字命中"硬校验**——raw 是 ASR 滚动字幕碎片（单条 8-12 字、断句错、含误识），
+ * 逐字引用必然不可读或 100% 误报。这里只判"锚点附近是否真的在讲这件事"，
+ * 覆盖率低于阈值说明锚点与语境对不上（如占位/编造），调用方据此丢弃该引用。
+ *
+ * @returns 0..1，窗口内无原文时返回 0
+ */
+export function quoteWindowCoverage(
+  excerpt: string,
+  cues: ReadonlyArray<{ startMs: number; text: string }>,
+  anchorSec: number,
+  windowBeforeSec = 30,
+  windowAfterSec = 45,
+): number {
+  const grams = (s: string): Set<string> => {
+    const flat = s.replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '');
+    const out = new Set<string>();
+    for (let i = 0; i + 1 < flat.length; i++) out.add(flat.slice(i, i + 2));
+    return out;
+  };
+  const anchorMs = Math.max(0, anchorSec) * 1000;
+  const window = cues
+    .filter((c) => c.startMs >= anchorMs - windowBeforeSec * 1000 && c.startMs <= anchorMs + windowAfterSec * 1000)
+    .map((c) => c.text ?? '')
+    .join('');
+  const gExcerpt = grams(excerpt);
+  if (gExcerpt.size === 0) return 0;
+  const gWindow = grams(window);
+  let hit = 0;
+  for (const g of gExcerpt) if (gWindow.has(g)) hit += 1;
+  return hit / gExcerpt.size;
 }
 
 /** 新建概念页（五字段 frontmatter + 划界定义待核验 callout + 首条引用记录） */
@@ -587,10 +802,8 @@ export function buildConceptPageMarkdown(args: {
     `> **定义（划界）**：${args.definition}`,
     // 上位概念 wikilink（SPEC-17 关联网：概念 → 上位概念 的图谱边）
     ...(args.broader ? ['', `上位概念：[[${args.broader}]]`] : []),
-    '',
-    '## 引用记录',
-    '',
-    args.reference,
+    // SPEC-18：引用记录为空时省略该节（宁缺毋滥，不写占位条目）
+    ...(args.reference.trim().length > 0 ? ['', '## 引用记录', '', args.reference] : []),
   ];
   return `${lines.join('\n').trim()}\n`;
 }
@@ -665,11 +878,19 @@ export function buildVideoNoteMarkdown(args: BuildVideoNoteArgs): {
     '',
     `来源：[B 站播放页](${videoPageUrl(meta)}) · 回放起点 ${timestampLink(meta, 0)} · 时长 ${formatMmSs(meta.durationMs)} · video_id \`${sourceVideoId || meta.videoId}\``,
     '',
+    // SPEC-18：AI 产出可辨识（宪法 B.9）+ 待核验如实标注（C.6）
+    '> [!note] AI 蒸馏 · 待核验',
+    '> 本笔记由 AI 从字幕原文蒸馏，尚未人工核验；引用前请点锚点回原文确认。',
+    '',
   ];
   const body = sections.map((s) => {
     const score = s.score != null ? `${s.score} 分` : '-';
-    const lines = [`## ${formatMmSs(s.startMs)}-${formatMmSs(s.endMs)} ${s.title}（${score}）`, '', s.summary, ''];
-    for (const bullet of s.bullets) {
+    // SPEC-18：bullets 确定性归一（对非 finalizeOutline 路径的 sections 也生效，幂等）
+    const bullets = normalizeBullets(s.bullets, s.startMs, s.endMs);
+    // SPEC-18：章节摘要句尾带溯源锚点（宪法 B.1「结论句尾必须带锚点」）
+    const summaryLine = `${s.summary} ${timestampLink(meta, s.startMs)}`;
+    const lines = [`## ${formatMmSs(s.startMs)}-${formatMmSs(s.endMs)} ${s.title}（${score}）`, '', summaryLine, ''];
+    for (const bullet of bullets) {
       lines.push(`- ${timestampLink(meta, bullet.startMs)} ${bullet.text}`);
     }
     if (s.terms.length > 0) {

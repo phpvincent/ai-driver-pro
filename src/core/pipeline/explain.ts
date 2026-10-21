@@ -197,7 +197,13 @@ export const DistillConceptSchema = z.object({
   broader: z.string(),
   /** 视频中最典型讲解时间点（秒，不得编造） */
   anchorSec: z.number().nonnegative(),
-  /** 讲解原文/用户笔记中的一句原话（引用记录的语境） */
+  /**
+   * 引用语境（SPEC-18）：`verbatim` = 逐字取自讲解原文（渲染加引号，可机械校验）；
+   * `paraphrase` = 语境转述（渲染不加引号，标注"转述"——ASR 碎片下逐字引用不可读时用）。
+   * 缺省按 verbatim 处理（向后兼容旧产物）。
+   */
+  excerptKind: z.enum(['verbatim', 'paraphrase']).optional(),
+  /** 讲解原文/用户笔记中的语境（verbatim 时必须逐字；paraphrase 时为忠实转述） */
   sourceExcerpt: z.string().min(1),
 });
 

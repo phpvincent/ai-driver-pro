@@ -155,9 +155,82 @@ export function enforceMinDuration(
 }
 
 /**
+ * 章节要点确定性归一（SPEC-18 18.1）：
+ * 大纲 bullets 由模型分块产出，拼接后会出现乱序 / 重复 / 越界（落在所属章节区间外），
+ * 直接渲染会让"章节语义分割"失去可信度。这里用纯函数一次性根除，**不重切章节**：
+ *
+ * 1. 过滤：text 非空、startMs 有限非负；
+ * 2. 稳定排序：按 startMs 升序（同刻保持原相对顺序）；
+ * 3. 同刻去重：同一 startMs 上文本高度重叠（字符集合 Jaccard ≥ 0.8）视为同一条要点的
+ *    两种措辞（分块拼接产物），保留文本较长的一条；文本不同则都保留；
+ * 4. 越界回落：startMs 落在 [sectionStartMs, sectionEndMs] 之外 → 回落到章节起点并标
+ *    `approximate: true`（与 snapBullets 的回落语义一致，红线 2：不使用幻觉时间戳）。
+ *
+ * 幂等：对已归一的输入再跑一遍结果不变。
+ */
+export function normalizeBullets(
+  bullets: readonly SectionBullet[],
+  sectionStartMs: number,
+  sectionEndMs: number,
+): SectionBullet[] {
+  const valid = bullets.filter(
+    (b) =>
+      b &&
+      typeof b.text === 'string' &&
+      b.text.trim().length > 0 &&
+      Number.isFinite(b.startMs) &&
+      b.startMs >= 0,
+  );
+  const sorted = [...valid].sort((a, b) => a.startMs - b.startMs);
+
+  // 同刻去重：组内两两比对，文本高度重叠视为同一条要点的两种措辞，保留较长的一条
+  const byMs = new Map<number, SectionBullet[]>();
+  for (const b of sorted) {
+    const group = byMs.get(b.startMs) ?? [];
+    const dupIdx = group.findIndex((x) => textOverlap(x.text, b.text) >= DUPLICATE_TEXT_THRESHOLD);
+    if (dupIdx >= 0) {
+      if (b.text.trim().length > group[dupIdx].text.trim().length) group[dupIdx] = b;
+    } else {
+      group.push(b);
+    }
+    byMs.set(b.startMs, group);
+  }
+  const deduped: SectionBullet[] = [];
+  for (const ms of [...byMs.keys()].sort((a, b) => a - b)) {
+    deduped.push(...byMs.get(ms)!);
+  }
+
+  return deduped.map((b) => {
+    if (b.startMs < sectionStartMs || b.startMs > sectionEndMs) {
+      return { text: b.text, startMs: sectionStartMs, approximate: true };
+    }
+    return b;
+  });
+}
+
+/** 同刻重复判定阈值（文本重叠度；见 textOverlap） */
+const DUPLICATE_TEXT_THRESHOLD = 0.8;
+
+/**
+ * 文本重叠度（SPEC-18）：字符集合交集 / 较小集合的大小。
+ * 与 `titleSimilarity`（Jaccard）不同——分块拼接产生的重复条目多为**包含关系**
+ * （长句涵盖短句），Jaccard 会判为低相似，用"较小集覆盖率"才判得准。
+ */
+export function textOverlap(a: string, b: string): number {
+  const sa = new Set(a.replace(/\s+/g, ''));
+  const sb = new Set(b.replace(/\s+/g, ''));
+  const minSize = Math.min(sa.size, sb.size);
+  if (minSize === 0) return 0;
+  let inter = 0;
+  for (const ch of sa) if (sb.has(ch)) inter += 1;
+  return inter / minSize;
+}
+
+/**
  * 全局校正：排序 → 剔除重叠（同 startMs 只保留先确认者）→ 首章回补到第一条 Cue（补齐覆盖）
  * → 最短章节强制（末尾后处理，末章时长按末条 Cue.endMs）→ endMs 链（下一章 startMs - 1，
- * 末章 = 末条 Cue.endMs）→ cueRange → 重编 id → 覆盖校验 → 密度打分（返回完整 Section[]）。
+ * 末章 = 末条 Cue.endMs）→ cueRange → bullets 归一（SPEC-18）→ 重编 id → 覆盖校验 →
+ * 密度打分（返回完整 Section[]）。
  */
 export function finalizeOutline(
   sections: SnappedSection[],
@@ -205,7 +278,8 @@ export function finalizeOutline(
       startMs: sec.startMs,
       endMs,
       summary: sec.summary,
-      bullets: sec.bullets,
+      // SPEC-18：bullets 确定性归一（排序/去重/越界回落），章节区间此时已知
+      bullets: normalizeBullets(sec.bullets, sec.startMs, endMs),
       terms: sec.terms,
       importance: sec.importance,
       cueRange: [startIdx, endIdx],

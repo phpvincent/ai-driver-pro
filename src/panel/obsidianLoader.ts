@@ -19,12 +19,16 @@ import {
   buildMocMarkdown,
   buildRawMarkdown,
   buildTermCardMarkdown,
+  buildVideoNoteIndexEntry,
   buildVideoNoteMarkdown,
+  buildVerifiedReference,
+  buildConceptIndexEntry,
   conceptNotePath,
   conceptReferenceBlock,
   DEFAULT_DOMAIN,
   buildConceptLinksBlock,
   emptyIndexFile,
+  filterTerms,
   findDuplicateTerm,
   INDEX_JSON_NAME,
   INDEX_MD_NAME,
@@ -315,15 +319,20 @@ export async function saveVideoNoteToObsidian(args: {
   for (const concept of concepts) {
     // 笔记文件名（wikilink 目标——Obsidian 图谱由概念→笔记连线）
     const noteLink = paths.videoNote.split('/').pop()?.replace(/\.md$/, '') ?? '';
-    const ref = conceptReferenceBlock({
+    // SPEC-18：引用入库校验（禁 [00:00] 占位 + 窗口软校验）；被丢弃只记日志，不阻断概念页
+    const verified = buildVerifiedReference({
+      concept,
       videoTitle: args.meta.title,
       noteLink,
-      anchorSec: concept.anchorSec,
-      sourceExcerpt: concept.sourceExcerpt,
       // 原话出现在用户笔记序列化里 → user-note（已核验·加权）；否则 raw 溯源
       sourceType: userNotesMd.includes(concept.sourceExcerpt) ? 'user-note' : 'raw',
       playbackUrl: playbackUrl(args.meta, concept.anchorSec * 1000),
+      cues: args.cues,
     });
+    if (verified.skipped) {
+      console.warn(`[vsc] 概念「${concept.name}」引用被丢弃：${verified.skipped}`);
+    }
+    const ref = verified.reference;
     const cPath = conceptNotePath(concept.name, cfg.rootDir);
     try {
       const existing = await getNote(cfg, fetchFn, cPath);
@@ -360,35 +369,32 @@ export async function saveVideoNoteToObsidian(args: {
   await putNote(cfg, fetchFn, joinVaultPath(cfg.rootDir, AGENTS_MD_PATH), AGENTS_MD).catch(() => undefined);
 
   // ---- 索引（机器检索入口）：视频笔记 entry 带 domain/entities；概念页 entry ----
+  // SPEC-18：条目由共享构造函数产出（terms 过滤、sourceType 显式、预览统一截断）
   const file = await readIndex(cfg, fetchFn);
   const entityNames = concepts.map((c) => c.name);
-  const entry: KnowledgeIndexEntry = {
+  const entry = buildVideoNoteIndexEntry({
     path: videoNote,
     title: args.meta.title,
-    category: 'video-note',
-    tags: ['ai', '视频笔记'],
     terms: noteDraft.terms,
     summaryPreview: noteDraft.summaryPreview,
     videoId: args.videoId,
-    updatedAt: new Date().toISOString(),
     domain,
-    entities: entityNames.length > 0 ? entityNames : undefined,
-  };
+    entities: entityNames,
+  });
   let fileNext = upsertIndexEntry(file, entry);
   for (const concept of concepts) {
     const cPath = conceptNotePath(concept.name, cfg.rootDir);
-    fileNext = upsertIndexEntry(fileNext, {
-      path: cPath,
-      title: concept.name,
-      category: 'concept',
-      tags: ['ai', '概念', domain],
-      terms: [concept.name, ...concept.aliases].filter((t) => t.trim().length > 0),
-      summaryPreview: concept.definition.slice(0, 200),
-      updatedAt: new Date().toISOString(),
-      domain,
-      sourceType: userNotesMd.includes(concept.sourceExcerpt) ? 'user-note' : 'ai-distill',
-      entities: [concept.name],
-    });
+    fileNext = upsertIndexEntry(
+      fileNext,
+      buildConceptIndexEntry({
+        path: cPath,
+        name: concept.name,
+        aliases: concept.aliases,
+        definition: concept.definition,
+        domain,
+        sourceType: userNotesMd.includes(concept.sourceExcerpt) ? 'user-note' : 'ai-distill',
+      }),
+    );
   }
   await writeIndex(cfg, fetchFn, fileNext);
 
@@ -487,10 +493,11 @@ export async function saveTermCardToObsidian(args: {
     title: args.term,
     category: 'term',
     tags: ['ai', '术语'],
-    terms: [args.term, ...(args.payload.relatedTerms ?? [])],
+    terms: filterTerms([args.term, ...(args.payload.relatedTerms ?? [])]),
     summaryPreview: note.summaryPreview,
     videoId: args.meta.videoId,
     updatedAt: new Date().toISOString(),
+    sourceType: 'ai-distill',
   };
   await writeIndex(cfg, fetchFn, upsertIndexEntry(file, entry));
 
