@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENTS_MD,
   buildConceptIndexEntry,
+  buildConceptPageMarkdown,
   buildVerifiedReference,
   buildVideoNoteIndexEntry,
   buildVideoNoteMarkdown,
@@ -99,6 +100,20 @@ describe('normalizeBullets（章节要点确定性归一）', () => {
     const early = out.find((b) => b.text === '早于章节起点');
     // -50 非法（负数）→ 被过滤
     expect(early).toBeUndefined();
+  });
+
+  it('越界回落后仍保持有序（回落条目不留在末尾）', () => {
+    const out = normalizeBullets(
+      [
+        { text: 'a', startMs: 100 },
+        { text: 'b', startMs: 200 },
+        { text: '越界内容', startMs: 900 },
+      ],
+      0,
+      500,
+    );
+    // 回落到章节起点后必须重排到最前，否则会形成新的乱序
+    expect(out.map((b) => b.startMs)).toEqual([0, 100, 200]);
   });
 
   it('幂等：对已归一的输入再跑一遍结果不变', () => {
@@ -315,5 +330,26 @@ describe('buildVideoNoteMarkdown（可辨识与摘要锚点）', () => {
 
   it('章节标题仍带综合打分', () => {
     expect(md).toContain('## 00:00-01:00 核心概念（-）');
+  });
+});
+
+describe('日期时区一致性（概念页 date 与笔记 created 同源）', () => {
+  it('同一时刻下概念页 date 与笔记 created 必须相同（都用本地时区）', () => {
+    // 本地 10-22 00:30 —— UTC 下会落到 10-21，可鉴别两种实现
+    const now = new Date(2026, 9, 22, 0, 30);
+    const note = buildVideoNoteMarkdown({ meta: meta(), sections: [section()], sourceVideoId: 'x', now }).markdown;
+    const concept = buildConceptPageMarkdown({
+      preferred: 'X',
+      aliases: [],
+      definition: '定义',
+      broader: '',
+      domain: '通用',
+      reference: '',
+      now,
+    });
+    const created = /created: (\S+)/.exec(note)?.[1];
+    const date = /date: (\S+)/.exec(concept)?.[1];
+    expect(created).toBeTruthy();
+    expect(date).toBe(created);
   });
 });

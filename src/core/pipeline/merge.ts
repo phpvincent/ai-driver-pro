@@ -173,17 +173,22 @@ export function normalizeBullets(
   sectionStartMs: number,
   sectionEndMs: number,
 ): SectionBullet[] {
-  const valid = bullets.filter(
-    (b) =>
-      b &&
-      typeof b.text === 'string' &&
-      b.text.trim().length > 0 &&
-      Number.isFinite(b.startMs) &&
-      b.startMs >= 0,
-  );
-  const sorted = [...valid].sort((a, b) => a.startMs - b.startMs);
+  // ① 过滤非法 + ② 越界回落（**必须在排序之前**：回落后 startMs 变为章节起点，
+  //    若放在排序后会让回落条目留在末尾，形成新的乱序——2026-10-22 真机核验发现）
+  const clamped: SectionBullet[] = [];
+  for (const b of bullets) {
+    if (!b || typeof b.text !== 'string' || b.text.trim().length === 0) continue;
+    if (!Number.isFinite(b.startMs) || b.startMs < 0) continue;
+    if (b.startMs < sectionStartMs || b.startMs > sectionEndMs) {
+      clamped.push({ text: b.text, startMs: sectionStartMs, approximate: true });
+    } else {
+      clamped.push(b);
+    }
+  }
+  // ③ 稳定排序
+  const sorted = [...clamped].sort((a, b) => a.startMs - b.startMs);
 
-  // 同刻去重：组内两两比对，文本高度重叠视为同一条要点的两种措辞，保留较长的一条
+  // ④ 同刻去重：组内两两比对，文本高度重叠视为同一条要点的两种措辞，保留较长的一条
   const byMs = new Map<number, SectionBullet[]>();
   for (const b of sorted) {
     const group = byMs.get(b.startMs) ?? [];
@@ -199,13 +204,7 @@ export function normalizeBullets(
   for (const ms of [...byMs.keys()].sort((a, b) => a - b)) {
     deduped.push(...byMs.get(ms)!);
   }
-
-  return deduped.map((b) => {
-    if (b.startMs < sectionStartMs || b.startMs > sectionEndMs) {
-      return { text: b.text, startMs: sectionStartMs, approximate: true };
-    }
-    return b;
-  });
+  return deduped;
 }
 
 /** 同刻重复判定阈值（文本重叠度；见 textOverlap） */

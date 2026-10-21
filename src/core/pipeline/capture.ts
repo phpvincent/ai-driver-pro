@@ -399,7 +399,9 @@ export function buildRawMarkdown(args: {
   now?: Date;
 }): string {
   const { meta: m, cues } = args;
-  const date = (args.now ?? new Date()).toISOString().slice(0, 10);
+  // SPEC-18 复核：date 用本地时区（与笔记 created 一致）；toISOString 是 UTC，
+  // 凌晨生成会比用户认知的日期早一天
+  const date = formatDate(args.now ?? new Date());
   const head = [
     '---',
     `title: ${yamlValue(m.title)}`,
@@ -779,7 +781,8 @@ export function buildConceptPageMarkdown(args: {
   reference: string;
   now?: Date;
 }): string {
-  const date = (args.now ?? new Date()).toISOString().slice(0, 10);
+  // SPEC-18 复核：date 用本地时区（与笔记 created 一致），避免凌晨生成差一天
+  const date = formatDate(args.now ?? new Date());
   const aliases = args.aliases.filter((a) => a.trim().length > 0 && a !== args.preferred);
   const lines = [
     '---',
