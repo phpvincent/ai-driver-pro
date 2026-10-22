@@ -220,7 +220,14 @@ export function filterTerms(terms: readonly string[]): string[] {
     const t = (raw ?? '').trim();
     if (t.length < 2) continue;
     if (/^[A-Za-z0-9\s.\-_]+$/.test(t) && /\s/.test(t)) continue; // 命令形短语
-    if (/\.(js|ts|jsx|tsx|vue|json|css|html|md|mjs|cjs)$/i.test(t)) continue; // 文件名
+    // 文件名（扩展名形态）过滤；**品牌技术名例外**——`Node.js`/`Next.js`/`Three.js`/`Vue.js`
+    // 带 .js 但是真实术语，一刀切按扩展名过滤会把框架名全清空（回归审查实证）。
+    if (
+      /\.(js|ts|jsx|tsx|vue|json|css|html|md|mjs|cjs)$/i.test(t) &&
+      !TERM_TECH_BRANDS.has(t.toLowerCase())
+    ) {
+      continue;
+    }
     if (/^[$@#]/.test(t)) continue; // 代码符号
     if (/^(?:ctrl|alt|shift|cmd|win|fn)\s*\+\s*\S+$/i.test(t)) continue; // 快捷键
     if (/^[a-z]:盘$/i.test(t) || /^[a-z]盘$/i.test(t)) continue; // 盘符（E盘/C盘）
@@ -229,6 +236,15 @@ export function filterTerms(terms: readonly string[]): string[] {
   }
   return out;
 }
+
+/**
+ * 带扩展名但属于品牌/技术专名的白名单（小写归一比对）：
+ * 这些是真实术语而非文件名，不得被扩展名规则误杀。
+ */
+const TERM_TECH_BRANDS = new Set([
+  'node.js', 'next.js', 'nuxt.js', 'vue.js', 'three.js', 'express.js', 'nest.js',
+  'chart.js', 'd3.js', 'jquery.js', 'axios.js', 'socket.io',
+]);
 
 /** terms 停用词（英文小写归一；只删噪音，不删真实 API 名） */
 const TERM_STOPWORDS = new Set([
@@ -289,12 +305,16 @@ export function buildConceptIndexEntry(args: {
   sourceType: 'ai-distill' | 'user-note';
   now?: Date;
 }): KnowledgeIndexEntry {
+  // 概念名本身**不进 filterTerms**——它是首要检索键，即使恰为停用词（如「属性」）也必须保留；
+  // 只对 aliases 过滤噪音（回归审查发现：名字进过滤器会被停用词表误杀）。
+  const aliasTerms = filterTerms(args.aliases);
+  const terms = [args.name, ...aliasTerms.filter((t) => t !== args.name)];
   return {
     path: args.path,
     title: args.name,
     category: 'concept',
     tags: ['ai', '概念', args.domain],
-    terms: filterTerms([args.name, ...args.aliases]),
+    terms,
     summaryPreview: truncatePreview(args.definition),
     updatedAt: (args.now ?? new Date()).toISOString(),
     domain: args.domain,

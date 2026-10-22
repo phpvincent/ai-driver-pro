@@ -189,14 +189,17 @@ export function normalizeBullets(
   // ③ 稳定排序
   const sorted = [...clamped].sort((a, b) => a.startMs - b.startMs);
 
-  // ④ 滑动窗近重复去重：与已保留序列的最后一条比对（时间相邻 + 文本重叠 → 合并）
+  // ④ 滑动窗近重复去重：与已保留序列的最后一条比对，**两类**才合并（都必须时间相邻）：
+  //    A. 包含关系——短句规范化后是长句子串（分块拼接把一句拆两条的主形态）；
+  //    B. 强改写——字符二元组 Dice ≥ 0.6（`…是单一变量原则` vs `…就是单一变量原则`）。
+  //    **不能**只用字符集重叠：中文并列概念句（加强论据/加强论点）重叠 0.83 虚高，会误吞。
   const kept: SectionBullet[] = [];
   for (const b of sorted) {
     const prev = kept[kept.length - 1];
     if (
       prev &&
       Math.abs(b.startMs - prev.startMs) <= NEAR_DUP_WINDOW_MS &&
-      textOverlap(prev.text, b.text) >= NEAR_DUP_OVERLAP
+      isNearDup(prev.text, b.text)
     ) {
       // 近重复：保留较长的一条（信息更全）
       if (b.text.trim().length > prev.text.trim().length) kept[kept.length - 1] = b;
@@ -210,13 +213,65 @@ export function normalizeBullets(
 /** 近重复判定窗口（毫秒）：时间相邻的条目才参与去重（避免误合并相隔较远的相似表述） */
 const NEAR_DUP_WINDOW_MS = 5_000;
 
-/** 近重复判定阈值（文本重叠度：字符集合交集 / 较小集合大小；对包含关系敏感） */
-const NEAR_DUP_OVERLAP = 0.6;
+/** 近重复判定阈值（字符二元组 Dice；强改写路径） */
+const NEAR_DUP_SIMILARITY = 0.6;
+
+/** 规范化比较文本：去空白（包含判定对空格/换行不敏感） */
+function normText(s: string): string {
+  return s.replace(/\s+/g, '');
+}
+
+/**
+ * 近重复判定（SPEC-19 N-4 修订）：
+ * - **包含关系**：短句是长句子串 → 合并（分块拼接的重复主形态，直接 `includes` 判定最准）；
+ * - **强改写**：字符二元组 Dice ≥ 0.6 → 合并（保序，措辞不同即错位）；
+ * - 其余保留——尤其**并列概念句**（`加强论据是对论据加强` vs `加强论点是对论点支持`）：
+ *   字符集重叠虽 0.83，但既非子串、二元组 Dice 仅 ≈0.44，不得合并。
+ */
+export function isNearDup(a: string, b: string): boolean {
+  const na = normText(a);
+  const nb = normText(b);
+  if (na.length === 0 || nb.length === 0) return false;
+  const [short, long] = na.length <= nb.length ? [na, nb] : [nb, na];
+  if (long.includes(short)) return true;
+  return textSimilarity(a, b) >= NEAR_DUP_SIMILARITY;
+}
+
+/**
+ * 文本相似度（近重复判据）：字符二元组（bigram）Dice 系数 = 2|A∩B| / (|A|+|B|)，
+ * 多重集语义（重复出现的 bigram 按次数计入）。保序、对措辞敏感：
+ * - 真近重复（`…是单一变量原则` vs `…就是单一变量原则`）→ ≈0.9，合并；
+ * - 并列概念句（`加强论据是对论据加强` vs `加强论点是对论点支持`）→ ≈0.44，保留。
+ */
+export function textSimilarity(a: string, b: string): number {
+  const ba = bigrams(a);
+  const bb = bigrams(b);
+  const total = ba.size + bb.size;
+  if (total === 0) return 0;
+  let inter = 0;
+  const [small, large] = ba.size <= bb.size ? [ba, bb] : [bb, ba];
+  for (const [g, n] of small) inter += Math.min(n, large.get(g) ?? 0);
+  return (2 * inter) / total;
+}
+
+function bigrams(s: string): Map<string, number> {
+  const flat = normText(s);
+  const m = new Map<string, number>();
+  for (let i = 0; i + 1 < flat.length; i += 1) {
+    const g = flat.slice(i, i + 2);
+    m.set(g, (m.get(g) ?? 0) + 1);
+  }
+  // 单字符退化：无 bigram 时用单字符集当一元组，避免短文本恒 0 相似
+  if (m.size === 0 && flat.length > 0) {
+    for (const ch of flat) m.set(ch, (m.get(ch) ?? 0) + 1);
+  }
+  return m;
+}
 
 /**
  * 文本重叠度（SPEC-18）：字符集合交集 / 较小集合的大小。
- * 与 `titleSimilarity`（Jaccard）不同——分块拼接产生的重复条目多为**包含关系**
- * （长句涵盖短句），Jaccard 会判为低相似，用"较小集覆盖率"才判得准。
+ * 对"包含关系"敏感（长句涵盖短句），适合判 containment；**不适合**做同窗近重复判据
+ * （中文常用字共享会让并列概念句虚高，见 `textSimilarity` 注释）。
  */
 export function textOverlap(a: string, b: string): number {
   const sa = new Set(a.replace(/\s+/g, ''));
