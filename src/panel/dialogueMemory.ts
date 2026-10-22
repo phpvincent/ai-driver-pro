@@ -16,6 +16,12 @@ export const DIALOGUE_MAX_TURNS = 5;
 /** 会话摘要的字符上限（降级追加路径的硬顶，防无限膨胀） */
 export const SUMMARY_MAX_CHARS = 600;
 
+/**
+ * store 视频数上限（SPEC-21 R3）：单条目内有界（5 轮/600 字），但视频数量原本无界。
+ * Map 保插入序，访问时 re-insert 实现 LRU；超限挤出最久未访问。
+ */
+export const DIALOGUE_MAX_VIDEOS = 20;
+
 export interface DialogueTurn {
   q: string;
   a: string;
@@ -30,10 +36,18 @@ const store = new Map<string, VideoMemory>();
 
 function mem(videoId: string): VideoMemory {
   let m = store.get(videoId);
-  if (!m) {
+  if (m) {
+    // LRU：命中提到末尾（Map 保插入序，delete+set = move to end）
+    store.delete(videoId);
+  } else {
     m = { summary: '', turns: [] };
-    store.set(videoId, m);
+    while (store.size >= DIALOGUE_MAX_VIDEOS) {
+      const oldest = store.keys().next();
+      if (oldest.done) break;
+      store.delete(oldest.value);
+    }
   }
+  store.set(videoId, m);
   return m;
 }
 
@@ -45,7 +59,10 @@ export function getDialogue(videoId: string): { summary: string; turns: Dialogue
 
 /** 重建记忆（ChatTab 挂载时从 store 或 qaHistory 恢复） */
 export function setDialogue(videoId: string, turns: DialogueTurn[], summary = ''): void {
-  store.set(videoId, { turns: turns.map((t) => ({ ...t })), summary });
+  // 经 mem() 走 LRU 入口（SPEC-21 R3：直接 store.set 会绕过容量上限）
+  const m = mem(videoId);
+  m.summary = summary;
+  m.turns = turns.map((t) => ({ ...t }));
 }
 
 /** 清空该视频记忆（换视频） */

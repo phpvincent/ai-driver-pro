@@ -114,6 +114,29 @@ export async function readIndex(
 }
 
 /**
+ * 索引写串行锁（SPEC-21 R2）：`readIndex → 改 → writeIndex` 是读改写临界区。
+ * `saveVideoNoteToObsidian` 与 `saveTermCardToObsidian` 并发触发时，后者会用
+ * 自己的旧快照覆盖前者的 upsert（丢条目）。用 promise 链把临界区串行化——
+ * 同一时刻只有一个 read-modify-write 在飞。
+ */
+let indexLockTail: Promise<void> = Promise.resolve();
+
+async function withIndexLock<T>(fn: () => Promise<T>): Promise<T> {
+  let release: () => void = () => undefined;
+  const admission = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prev = indexLockTail;
+  indexLockTail = prev.then(() => admission);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+/**
  * 写双索引：JSON（机器检索）+ `_索引.md`（人类 MOC）。
  * 索引写失败不阻断主流程——调用方自行决定是否向上传播（存库主笔记已成功）。
  */
@@ -321,11 +344,13 @@ export async function saveVideoNoteToObsidian(args: {
   // ---- SPEC-17：概念页（追加式合并；aliases 只增不删）----
   // SPEC-19：broader 入库校验需要"已存在的概念名"（既有库 + 本批）；索引在此读一次，
   // 后续索引写入复用同一份（概念条目在下方统一 upsert）
-  const file = await readIndex(cfg, fetchFn).catch(() => emptyIndexFile());
-  const knownConcepts = new Set<string>([
-    ...file.entries.filter((e) => e.category === 'concept' || e.category === 'term').map((e) => e.title),
-    ...concepts.map((c) => c.name),
-  ]);
+  // SPEC-21 R2：整个 read-modify-write 临界区进串行锁，防与 saveTermCard 并发丢条目
+  return await withIndexLock(async () => {
+    const file = await readIndex(cfg, fetchFn).catch(() => emptyIndexFile());
+    const knownConcepts = new Set<string>([
+      ...file.entries.filter((e) => e.category === 'concept' || e.category === 'term').map((e) => e.title),
+      ...concepts.map((c) => c.name),
+    ]);
   for (const concept of concepts) {
     // 笔记文件名（wikilink 目标——Obsidian 图谱由概念→笔记连线）
     const noteLink = paths.videoNote.split('/').pop()?.replace(/\.md$/, '') ?? '';
@@ -416,18 +441,19 @@ export async function saveVideoNoteToObsidian(args: {
   }
   await writeIndex(cfg, fetchFn, fileNext);
 
-  // ---- 领域 MOC（人类目录）：存入时重建该领域页；复合领域同步重建父级 MOC ----
-  await putNote(
-    cfg,
-    fetchFn,
-    joinVaultPath(cfg.rootDir, mocPath(domain)),
-    buildMocMarkdown({ domain, entries: fileNext.entries }),
-  ).catch(() => undefined);
-  await writeParentMocIfAny(cfg, fetchFn, domain, fileNext.entries);
+    // ---- 领域 MOC（人类目录）：存入时重建该领域页；复合领域同步重建父级 MOC ----
+    await putNote(
+      cfg,
+      fetchFn,
+      joinVaultPath(cfg.rootDir, mocPath(domain)),
+      buildMocMarkdown({ domain, entries: fileNext.entries }),
+    ).catch(() => undefined);
+    await writeParentMocIfAny(cfg, fetchFn, domain, fileNext.entries);
 
-  // ---- SPEC-17 存入即体检：对刚写回的索引跑 Lint（纯函数，零额外请求）----
-  const lintIssues = lintKnowledgeIndex(fileNext);
-  return { path: videoNote, ...(lintIssues.length > 0 ? { lintIssues } : {}) };
+    // ---- SPEC-17 存入即体检：对刚写回的索引跑 Lint（纯函数，零额外请求）----
+    const lintIssues = lintKnowledgeIndex(fileNext);
+    return { path: videoNote, ...(lintIssues.length > 0 ? { lintIssues } : {}) };
+  });
 }
 
 /**
@@ -535,19 +561,22 @@ export async function saveTermCardToObsidian(args: {
 
   await putNote(cfg, fetchFn, path, note.markdown);
 
-  const file = await readIndex(cfg, fetchFn);
-  const entry: KnowledgeIndexEntry = {
-    path,
-    title: args.term,
-    category: 'term',
-    tags: ['ai', '术语'],
-    terms: filterTerms([args.term, ...(args.payload.relatedTerms ?? [])]),
-    summaryPreview: note.summaryPreview,
-    videoId: args.meta.videoId,
-    updatedAt: new Date().toISOString(),
-    sourceType: 'ai-distill',
-  };
-  await writeIndex(cfg, fetchFn, upsertIndexEntry(file, entry));
+  // SPEC-21 R2：read-modify-write 临界区进串行锁（与 saveVideoNote 共用）
+  await withIndexLock(async () => {
+    const file = await readIndex(cfg, fetchFn);
+    const entry: KnowledgeIndexEntry = {
+      path,
+      title: args.term,
+      category: 'term',
+      tags: ['ai', '术语'],
+      terms: filterTerms([args.term, ...(args.payload.relatedTerms ?? [])]),
+      summaryPreview: note.summaryPreview,
+      videoId: args.meta.videoId,
+      updatedAt: new Date().toISOString(),
+      sourceType: 'ai-distill',
+    };
+    await writeIndex(cfg, fetchFn, upsertIndexEntry(file, entry));
+  });
 
   // 术语卡同时入本地缓存（键 [term, videoId]）；写失败不阻断存库结果
   try {
@@ -610,8 +639,10 @@ export async function repairKnowledgeHealth(): Promise<HealthRepairReport | null
   const cfg = await getObsidianConfig();
   if (!cfg || !cfg.baseUrl || !cfg.apiKey) return null;
   const fetchFn = defaultFetch;
-  const file = await readIndex(cfg, fetchFn);
-  if ((file?.entries ?? []).length === 0) return null;
+  // SPEC-21 R2：整段读改写进串行锁（与 save 路径互斥）
+  return await withIndexLock(async () => {
+    const file = await readIndex(cfg, fetchFn);
+    if ((file?.entries ?? []).length === 0) return null;
 
   // 概念条目缺领域：读文件 frontmatter domains（title → domain 首值）
   const conceptDomains = new Map<string, string>();
@@ -659,16 +690,17 @@ export async function repairKnowledgeHealth(): Promise<HealthRepairReport | null
   if (fix.fixedDomains === 0 && fix.fixedLinks === 0 && cleanedOrphans.length === 0 && keptManualOrphans.length === 0) {
     return report; // 无变化，不写回
   }
-  await writeIndex(cfg, fetchFn, { version: 1, entries: finalEntries });
-  const domains = [...new Set(finalEntries.map((e) => e.domain).filter((d): d is string => !!d))];
-  for (const d of domains) {
-    await putNote(
-      cfg,
-      fetchFn,
-      joinVaultPath(cfg.rootDir, mocPath(d)),
-      buildMocMarkdown({ domain: d, entries: finalEntries }),
-    ).catch(() => undefined);
-    await writeParentMocIfAny(cfg, fetchFn, d, finalEntries);
-  }
-  return report;
+    await writeIndex(cfg, fetchFn, { version: 1, entries: finalEntries });
+    const domains = [...new Set(finalEntries.map((e) => e.domain).filter((d): d is string => !!d))];
+    for (const d of domains) {
+      await putNote(
+        cfg,
+        fetchFn,
+        joinVaultPath(cfg.rootDir, mocPath(d)),
+        buildMocMarkdown({ domain: d, entries: finalEntries }),
+      ).catch(() => undefined);
+      await writeParentMocIfAny(cfg, fetchFn, d, finalEntries);
+    }
+    return report;
+  });
 }
