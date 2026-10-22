@@ -426,8 +426,6 @@ describe('upsertDomainTag（领域标签注入）', () => {
 // ---------------------------------------------------------------------------
 import {
   buildParentMocMarkdown,
-  buildConceptPageMarkdown,
-  conceptNotePath,
   parentDomain,
   wikiLink,
 } from '../../../src/core/pipeline/capture';

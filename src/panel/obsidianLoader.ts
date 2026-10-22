@@ -436,7 +436,7 @@ export async function saveVideoNoteToObsidian(args: {
  * 单段域（`前端开发`）无父域，跳过。
  */
 async function writeParentMocIfAny(
-  cfg: { rootDir: string },
+  cfg: ObsidianConfig,
   fetchFn: ObsidianFetch,
   domain: string,
   entries: ReadonlyArray<{ domain?: string }>,
